@@ -39,7 +39,7 @@ install:
   - pip uninstall --yes scikit-survival || exit 0  # delete any version that is already installed
   - python setup.py bdist_wheel
   - pip install --exists-action=w --pre --no-index --find-links dist/ scikit-survival
-  - rm -fr sksurv build dist
+  - rm -fr build dist
 
 # command to run tests
 script:
