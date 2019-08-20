@@ -247,6 +247,8 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
 
     Uses the Breslow method to handle ties and Newton-Raphson optimization.
 
+    See [1]_ for further description.
+
     Parameters
     ----------
     alpha : float, optional, default: 0
@@ -288,6 +290,14 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
         self.verbose = verbose
 
         self._baseline_model = BreslowEstimator()
+
+    @property
+    def cum_baseline_hazard_(self):
+        return self._baseline_model.cum_baseline_hazard_
+
+    @property
+    def baseline_survival_(self):
+        return self._baseline_model.baseline_survival_
 
     def fit(self, X, y):
         """Minimize negative partial log-likelihood for provided data.
