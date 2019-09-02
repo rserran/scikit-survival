@@ -127,13 +127,16 @@ class BreslowEstimator:
 class CoxPHOptimizer:
     """Negative partial log-likelihood of Cox proportional hazards model"""
 
-    def __init__(self, X, event, time, alpha):
+    def __init__(self, X, event, time, alpha, ties):
         # sort descending
         o = numpy.argsort(-time, kind="mergesort")
         self.x = X[o, :]
         self.event = event[o]
         self.time = time[o]
         self.alpha = alpha
+        if ties not in ("breslow", "efron"):
+            raise ValueError("ties must be one of 'breslow', 'efron'")
+        self._is_breslow = ties == "breslow"
 
     def nlog_likelihood(self, w):
         """Compute negative partial log-likelihood
@@ -150,19 +153,35 @@ class CoxPHOptimizer:
         """
         time = self.time
         n_samples = self.x.shape[0]
+        breslow = self._is_breslow
         xw = numpy.dot(self.x, w)
 
         loss = 0
         risk_set = 0
         k = 0
-        for i in range(n_samples):
-            ti = time[i]
+        while k < n_samples:
+            ti = time[k]
+            numerator = 0
+            n_events = 0
+            risk_set2 = 0
             while k < n_samples and ti == time[k]:
-                risk_set += numpy.exp(xw[k])
+                if self.event[k]:
+                    numerator += xw[k]
+                    risk_set2 += numpy.exp(xw[k])
+                    n_events += 1
+                else:
+                    risk_set += numpy.exp(xw[k])
                 k += 1
 
-            if self.event[i]:
-                loss -= (xw[i] - numpy.log(risk_set)) / n_samples
+            if n_events > 0:
+                if breslow:
+                    risk_set += risk_set2
+                    loss -= (numerator - n_events * numpy.log(risk_set)) / n_samples
+                else:
+                    numerator /= n_events
+                    for _ in range(n_events):
+                        risk_set += risk_set2 / n_events
+                        loss -= (numerator - numpy.log(risk_set)) / n_samples
 
         # add regularization term to log-likelihood
         return loss + self.alpha * squared_norm(w) / (2. * n_samples)
@@ -171,42 +190,74 @@ class CoxPHOptimizer:
         """Compute gradient and Hessian matrix with respect to `w`."""
         time = self.time
         x = self.x
+        breslow = self._is_breslow
         exp_xw = numpy.exp(offset + numpy.dot(x, w))
         n_samples, n_features = x.shape
 
-        gradient = numpy.zeros((1, n_features), dtype=float)
-        hessian = numpy.zeros((n_features, n_features), dtype=float)
+        gradient = numpy.zeros((1, n_features), dtype=w.dtype)
+        hessian = numpy.zeros((n_features, n_features), dtype=w.dtype)
 
         inv_n_samples = 1. / n_samples
         risk_set = 0
-        risk_set_x = 0
-        risk_set_xx = 0
+        risk_set_x = numpy.zeros((1, n_features), dtype=w.dtype)
+        risk_set_xx = numpy.zeros((n_features, n_features), dtype=w.dtype)
         k = 0
         # iterate time in descending order
-        for i in range(n_samples):
-            ti = time[i]
+        while k < n_samples:
+            ti = time[k]
+            n_events = 0
+            numerator = 0
+            risk_set2 = 0
+            risk_set_x2 = numpy.zeros_like(risk_set_x)
+            risk_set_xx2 = numpy.zeros_like(risk_set_xx)
             while k < n_samples and ti == time[k]:
-                risk_set += exp_xw[k]
-
                 # preserve 2D shape of row vector
                 xk = x[k:k + 1]
-                risk_set_x += exp_xw[k] * xk
 
                 # outer product
                 xx = numpy.dot(xk.T, xk)
-                risk_set_xx += exp_xw[k] * xx
 
+                if self.event[k]:
+                    numerator += xk
+                    risk_set2 += exp_xw[k]
+                    risk_set_x2 += exp_xw[k] * xk
+                    risk_set_xx2 += exp_xw[k] * xx
+                    n_events += 1
+                else:
+                    risk_set += exp_xw[k]
+                    risk_set_x += exp_xw[k] * xk
+                    risk_set_xx += exp_xw[k] * xx
                 k += 1
 
-            if self.event[i]:
-                gradient -= (x[i:i + 1] - risk_set_x / risk_set) * inv_n_samples
+            if n_events > 0:
+                if breslow:
+                    risk_set += risk_set2
+                    risk_set_x += risk_set_x2
+                    risk_set_xx += risk_set_xx2
 
-                a = risk_set_xx / risk_set
-                z = risk_set_x / risk_set
-                # outer product
-                b = numpy.dot(z.T, z)
+                    z = risk_set_x / risk_set
+                    gradient -= (numerator - n_events * z) * inv_n_samples
 
-                hessian += (a - b) * inv_n_samples
+                    a = risk_set_xx / risk_set
+                    # outer product
+                    b = numpy.dot(z.T, z)
+
+                    hessian += n_events * (a - b) * inv_n_samples
+                else:
+                    numerator /= n_events
+                    for _ in range(n_events):
+                        risk_set += risk_set2 / n_events
+                        risk_set_x += risk_set_x2 / n_events
+                        risk_set_xx += risk_set_xx2 / n_events
+
+                        z = risk_set_x / risk_set
+                        gradient -= (numerator - z) * inv_n_samples
+
+                        a = risk_set_xx / risk_set
+                        # outer product
+                        b = numpy.dot(z.T, z)
+
+                        hessian += (a - b) * inv_n_samples
 
         if self.alpha > 0:
             gradient += self.alpha * inv_n_samples * w
@@ -245,14 +296,23 @@ class VerboseReporter:
 class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
     """Cox proportional hazards model.
 
-    Uses the Breslow method to handle ties and Newton-Raphson optimization.
+    There are two possible choices for handling tied event times.
+    The default is Breslow's method, which considers each of the
+    events at a given time as distinct. Efron's method is more
+    accurate if there are a large number of ties. When the number
+    of ties is small, the estimated coefficients by Breslow's and
+    Efron's method are quite close. Uses Newton-Raphson optimization.
 
-    See [1]_ for further description.
+    See [1]_, [2]_, [3]_ for further description.
 
     Parameters
     ----------
     alpha : float, optional, default: 0
         Regularization parameter for ridge regression penalty.
+
+    ties : "breslow" | "efron", optional, default: "breslow"
+        The method to handle tied event times. If there are
+        no tied event times all the methods are equivalent.
 
     n_iter : int, optional, default: 100
         Maximum number of iterations.
@@ -281,10 +341,15 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
     ----------
     .. [1] Cox, D. R. Regression models and life tables (with discussion).
            Journal of the Royal Statistical Society. Series B, 34, 187-220, 1972.
+    .. [2] Breslow, N. E. Covariance Analysis of Censored Survival Data.
+           Biometrics 30 (1974): 89–99.
+    .. [3] Efron, B. The Efficiency of Cox’s Likelihood Function for Censored Data.
+           Journal of the American Statistical Association 72 (1977): 557–565.
     """
 
-    def __init__(self, alpha=0, n_iter=100, tol=1e-9, verbose=0):
+    def __init__(self, alpha=0, ties="breslow", n_iter=100, tol=1e-9, verbose=0):
         self.alpha = alpha
+        self.ties = ties
         self.n_iter = n_iter
         self.tol = tol
         self.verbose = verbose
@@ -321,7 +386,7 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
         if self.alpha < 0:
             raise ValueError("alpha must be positive, but was %r" % self.alpha)
 
-        optimizer = CoxPHOptimizer(X, event, time, self.alpha)
+        optimizer = CoxPHOptimizer(X, event, time, self.alpha, self.ties)
 
         verbose_reporter = VerboseReporter(self.verbose)
         w = numpy.zeros(X.shape[1])
