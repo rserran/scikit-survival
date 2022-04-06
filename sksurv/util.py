@@ -13,10 +13,9 @@
 import numpy
 import pandas
 from pandas.api.types import is_categorical_dtype
-from sklearn.utils import check_consistent_length, check_array
+from sklearn.utils import check_array, check_consistent_length
 
-
-__all__ = ['check_arrays_survival', 'check_y_survival', 'safe_concat', 'Surv']
+__all__ = ['check_array_survival', 'check_y_survival', 'safe_concat', 'Surv']
 
 
 class Surv:
@@ -49,9 +48,9 @@ class Surv:
         if name_time == name_event:
             raise ValueError('name_time must be different from name_event')
 
-        time = numpy.asanyarray(time, dtype=numpy.float_)
+        time = numpy.asanyarray(time, dtype=float)
         y = numpy.empty(time.shape[0],
-                        dtype=[(name_event, numpy.bool_), (name_time, numpy.float_)])
+                        dtype=[(name_event, bool), (name_time, float)])
         y[name_time] = time
 
         event = numpy.asanyarray(event)
@@ -66,7 +65,7 @@ class Surv:
                 raise ValueError('event indicator must be binary')
 
             if numpy.all(events == numpy.array([0, 1], dtype=events.dtype)):
-                y[name_event] = event.astype(numpy.bool_)
+                y[name_event] = event.astype(bool)
             else:
                 raise ValueError('non-boolean event indicator must contain 0 and 1 only')
 
@@ -164,7 +163,7 @@ def check_y_survival(y_or_event, *args, allow_all_censored=False):
     return tuple(return_val)
 
 
-def check_arrays_survival(X, y, **kwargs):
+def check_array_survival(X, y):
     """Check that all arrays have consistent first dimensions.
 
     Parameters
@@ -182,9 +181,6 @@ def check_arrays_survival(X, y, **kwargs):
 
     Returns
     -------
-    X : array, shape=[n_samples, n_features]
-        Feature vectors.
-
     event : array, shape=[n_samples,], dtype=bool
         Binary event indicator.
 
@@ -192,10 +188,8 @@ def check_arrays_survival(X, y, **kwargs):
         Time of event or censoring.
     """
     event, time = check_y_survival(y)
-    kwargs.setdefault("dtype", numpy.float64)
-    X = check_array(X, ensure_min_samples=2, **kwargs)
     check_consistent_length(X, event, time)
-    return X, event, time
+    return event, time
 
 
 def safe_concat(objs, *args, **kwargs):

@@ -12,11 +12,11 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import numbers
 
+from joblib import Parallel, delayed
 import numpy
-from scipy.stats import rankdata, kendalltau, spearmanr
-from sklearn.base import clone, BaseEstimator
+from scipy.stats import kendalltau, rankdata, spearmanr
+from sklearn.base import BaseEstimator, clone
 from sklearn.model_selection import check_cv
-from sklearn.externals.joblib import Parallel, delayed
 
 from .base import _fit_and_score
 from .stacking import Stacking
@@ -45,7 +45,7 @@ class EnsembleAverage(BaseEstimator):
     def get_base_params(self):
         return self.base_estimators[0].get_params()
 
-    def fit(self, X, y=None, **kwargs):  # pragma: no cover
+    def fit(self, X, y=None, **kwargs):  # pragma: no cover; # pylint: disable=unused-argument
         return self
 
     def predict(self, X):
@@ -57,18 +57,18 @@ class EnsembleAverage(BaseEstimator):
 
 
 class MeanEstimator(BaseEstimator):
-    def fit(self, X, y=None, **kwargs):  # pragma: no cover
+    def fit(self, X, y=None, **kwargs):  # pragma: no cover; # pylint: disable=unused-argument
         return self
 
-    def predict(self, X):
+    def predict(self, X):  # pylint: disable=no-self-use
         return X.mean(axis=X.ndim - 1)
 
 
 class MeanRankEstimator(BaseEstimator):
-    def fit(self, X, y=None, **kwargs):  # pragma: no cover
+    def fit(self, X, y=None, **kwargs):  # pragma: no cover; # pylint: disable=unused-argument
         return self
 
-    def predict(self, X):
+    def predict(self, X):  # pylint: disable=no-self-use
         # convert predictions of individual models into ranks
         ranks = numpy.apply_along_axis(rankdata, 0, X)
         # average predicted ranks
@@ -114,8 +114,7 @@ class BaseEnsembleSelection(Stacking):
     def __len__(self):
         if hasattr(self, "fitted_models_"):
             return len(self.fitted_models_)
-        else:
-            return 0
+        return 0
 
     def _check_params(self):
         if self.n_estimators <= 0:
@@ -151,17 +150,29 @@ class BaseEnsembleSelection(Stacking):
 
     def _create_base_ensemble(self, out, n_estimators, n_folds):
         """For each base estimator collect models trained on each fold"""
+        if hasattr(self, "feature_names_in_"):
+            # Delete the attribute when the estimator is fitted on a new dataset
+            # that has no feature names.
+            delattr(self, "feature_names_in_")
+
         ensemble_scores = numpy.empty((n_estimators, n_folds))
-        base_ensemble = numpy.empty_like(ensemble_scores, dtype=numpy.object)
+        base_ensemble = numpy.empty_like(ensemble_scores, dtype=object)
         for model, fold, score, est in out:
             ensemble_scores[model, fold] = score
             base_ensemble[model, fold] = est
+
+            if hasattr(est, "n_features_in_"):
+                self.n_features_in_ = est.n_features_in_
+            if hasattr(est, "feature_names_in_"):
+                self.feature_names_in_ = est.feature_names_in_
+
+        self.final_estimator_ = self.meta_estimator
 
         return ensemble_scores, base_ensemble
 
     def _create_cv_ensemble(self, base_ensemble, idx_models_included, model_names=None):
         """For each selected base estimator, average models trained on each fold"""
-        fitted_models = numpy.empty(len(idx_models_included), dtype=numpy.object)
+        fitted_models = numpy.empty(len(idx_models_included), dtype=object)
         for i, idx in enumerate(idx_models_included):
             model_name = self.base_estimators[idx][0] if model_names is None else model_names[idx]
             avg_model = EnsembleAverage(base_ensemble[idx, :], name=model_name)
@@ -351,6 +362,13 @@ class EnsembleSelection(BaseEnsembleSelection):
     fitted_models_ : ndarray
         Selected models during training based on `scorer`.
 
+    n_features_in_ : int
+        Number of features seen during ``fit``.
+
+    feature_names_in_ : ndarray of shape (`n_features_in_`,)
+        Names of features seen during ``fit``. Defined only when `X`
+        has feature names that are all strings.
+
     References
     ----------
 
@@ -482,6 +500,13 @@ class EnsembleSelectionRegressor(BaseEnsembleSelection):
     fitted_models_ : ndarray
         Selected models during training based on `scorer`.
 
+    n_features_in_ : int
+        Number of features seen during ``fit``.
+
+    feature_names_in_ : ndarray of shape (`n_features_in_`,)
+        Names of features seen during ``fit``. Defined only when `X`
+        has feature names that are all strings.
+
     References
     ----------
 
@@ -509,6 +534,10 @@ class EnsembleSelectionRegressor(BaseEnsembleSelection):
                          cv=cv,
                          n_jobs=n_jobs,
                          verbose=verbose)
+
+    @property
+    def _predict_risk_score(self):
+        return False
 
     def _fit(self, X, y, cv, **fit_params):
         scores, base_ensemble = self._fit_and_score_ensemble(X, y, cv, **fit_params)

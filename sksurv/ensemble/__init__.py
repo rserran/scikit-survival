@@ -1,4 +1,2 @@
-from .boosting import ComponentwiseGradientBoostingSurvivalAnalysis, GradientBoostingSurvivalAnalysis
-
-__all__ = ['ComponentwiseGradientBoostingSurvivalAnalysis',
-           'GradientBoostingSurvivalAnalysis']
+from .boosting import ComponentwiseGradientBoostingSurvivalAnalysis, GradientBoostingSurvivalAnalysis  # noqa: F401
+from .forest import ExtraSurvivalTrees, RandomSurvivalForest  # noqa: F401

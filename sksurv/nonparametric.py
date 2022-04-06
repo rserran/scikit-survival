@@ -49,7 +49,10 @@ def _compute_counts(event, time, order=None):
         Number of events at each time point.
 
     n_at_risk : array
-        Number of samples that are censored or have an event at each time point.
+        Number of samples that have not been censored or have not had an event at each time point.
+
+    n_censored : array
+        Number of censored samples at each time point.
     """
     n_samples = event.shape[0]
 
@@ -57,8 +60,8 @@ def _compute_counts(event, time, order=None):
         order = numpy.argsort(time, kind="mergesort")
 
     uniq_times = numpy.empty(n_samples, dtype=time.dtype)
-    uniq_events = numpy.empty(n_samples, dtype=numpy.int_)
-    uniq_counts = numpy.empty(n_samples, dtype=numpy.int_)
+    uniq_events = numpy.empty(n_samples, dtype=int)
+    uniq_counts = numpy.empty(n_samples, dtype=int)
 
     i = 0
     prev_val = time[order[0]]
@@ -86,12 +89,13 @@ def _compute_counts(event, time, order=None):
     times = numpy.resize(uniq_times, j)
     n_events = numpy.resize(uniq_events, j)
     total_count = numpy.resize(uniq_counts, j)
+    n_censored = total_count - n_events
 
     # offset cumulative sum by one
-    total_count = numpy.concatenate(([0], total_count))
+    total_count = numpy.r_[0, total_count]
     n_at_risk = n_samples - numpy.cumsum(total_count)
 
-    return times, n_events, n_at_risk[:-1]
+    return times, n_events, n_at_risk[:-1], n_censored
 
 
 def _compute_counts_truncated(event, time_enter, time_exit):
@@ -125,9 +129,9 @@ def _compute_counts_truncated(event, time_enter, time_exit):
 
     n_samples = event.shape[0]
 
-    uniq_times = numpy.sort(numpy.unique(numpy.concatenate((time_enter, time_exit))), kind="mergesort")
-    total_counts = numpy.empty(len(uniq_times), dtype=numpy.int_)
-    event_counts = numpy.empty(len(uniq_times), dtype=numpy.int_)
+    uniq_times = numpy.sort(numpy.unique(numpy.r_[time_enter, time_exit]), kind="mergesort")
+    total_counts = numpy.empty(len(uniq_times), dtype=int)
+    event_counts = numpy.empty(len(uniq_times), dtype=int)
 
     order_enter = numpy.argsort(time_enter, kind="mergesort")
     order_exit = numpy.argsort(time_exit, kind="mergesort")
@@ -167,7 +171,7 @@ def _compute_counts_truncated(event, time_enter, time_exit):
     return uniq_times, event_counts, total_counts
 
 
-def kaplan_meier_estimator(event, time_exit, time_enter=None, time_min=None):
+def kaplan_meier_estimator(event, time_exit, time_enter=None, time_min=None, reverse=False):
     """Kaplan-Meier estimator of survival function.
 
     See [1]_ for further description.
@@ -187,6 +191,13 @@ def kaplan_meier_estimator(event, time_exit, time_enter=None, time_min=None):
     time_min : float, optional
         Compute estimator conditional on survival at least up to
         the specified time.
+
+    reverse : bool, optional, default: False
+        Whether to estimate the censoring distribution.
+        When there are ties between times at which events are observed,
+        then events come first and are subtracted from the denominator.
+        Only available for right-censored data, i.e. `time_enter` must
+        be None.
 
     Returns
     -------
@@ -215,11 +226,22 @@ def kaplan_meier_estimator(event, time_exit, time_enter=None, time_min=None):
     check_consistent_length(event, time_enter, time_exit)
 
     if time_enter is None:
-        uniq_times, n_events, n_at_risk = _compute_counts(event, time_exit)
+        uniq_times, n_events, n_at_risk, n_censored = _compute_counts(event, time_exit)
+
+        if reverse:
+            n_at_risk -= n_events
+            n_events = n_censored
     else:
+        if reverse:
+            raise ValueError("The censoring distribution cannot be estimated from left truncated data")
+
         uniq_times, n_events, n_at_risk = _compute_counts_truncated(event, time_enter, time_exit)
 
-    values = 1 - n_events / n_at_risk
+    # account for 0/0 = nan
+    ratio = numpy.divide(n_events, n_at_risk,
+                         out=numpy.zeros(uniq_times.shape[0], dtype=float),
+                         where=n_events != 0)
+    values = 1.0 - ratio
 
     if time_min is not None:
         mask = uniq_times >= time_min
@@ -261,7 +283,7 @@ def nelson_aalen_estimator(event, time):
     """
     event, time = check_y_survival(event, time)
     check_consistent_length(event, time)
-    uniq_times, n_events, n_at_risk = _compute_counts(event, time)
+    uniq_times, n_events, n_at_risk, _ = _compute_counts(event, time)
 
     y = numpy.cumsum(n_events / n_at_risk)
 
@@ -283,11 +305,17 @@ def ipc_weights(event, time):
     -------
     weights : array, shape = (n_samples,)
         inverse probability of censoring weights
+
+    See also
+    --------
+    CensoringDistributionEstimator
+        An estimator interface for estimating inverse probability
+        of censoring weights for unseen time points.
     """
     if event.all():
         return numpy.ones(time.shape[0])
 
-    unique_time, p = kaplan_meier_estimator(~event, time)
+    unique_time, p = kaplan_meier_estimator(event, time, reverse=True)
 
     idx = numpy.searchsorted(unique_time, time[event])
     Ghat = p[idx]
@@ -323,8 +351,8 @@ class SurvivalFunctionEstimator(BaseEstimator):
         event, time = check_y_survival(y, allow_all_censored=True)
 
         unique_time, prob = kaplan_meier_estimator(event, time)
-        self.unique_time_ = numpy.concatenate(([-numpy.infty], unique_time))
-        self.prob_ = numpy.concatenate(([1.], prob))
+        self.unique_time_ = numpy.r_[-numpy.infty, unique_time]
+        self.prob_ = numpy.r_[1., prob]
 
         return self
 
@@ -390,9 +418,9 @@ class CensoringDistributionEstimator(SurvivalFunctionEstimator):
             self.unique_time_ = numpy.unique(time)
             self.prob_ = numpy.ones(self.unique_time_.shape[0])
         else:
-            unique_time, prob = kaplan_meier_estimator(~event, time)
-            self.unique_time_ = numpy.concatenate(([-numpy.infty], unique_time))
-            self.prob_ = numpy.concatenate(([1.], prob))
+            unique_time, prob = kaplan_meier_estimator(event, time, reverse=True)
+            self.unique_time_ = numpy.r_[-numpy.infty, unique_time]
+            self.prob_ = numpy.r_[1., prob]
 
         return self
 

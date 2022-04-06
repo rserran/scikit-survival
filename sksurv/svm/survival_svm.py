@@ -11,25 +11,26 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from abc import ABCMeta, abstractmethod
+import warnings
+
+import numexpr
+import numpy
+from scipy.optimize import minimize
 from sklearn.base import BaseEstimator
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.metrics.pairwise import pairwise_kernels
-from sklearn.utils import check_X_y, check_array, check_consistent_length, check_random_state
+from sklearn.utils import check_array, check_consistent_length, check_random_state, check_X_y
 from sklearn.utils.extmath import safe_sparse_dot, squared_norm
+from sklearn.utils.validation import check_is_fitted
 
-from scipy.optimize import minimize
-
-import numpy
-import numexpr
-import warnings
-
-from ._prsvm import survival_constraints_simple, survival_constraints_with_support_vectors
 from ..base import SurvivalAnalysisMixin
 from ..bintrees import AVLTree, RBTree
-from ..util import check_arrays_survival
+from ..exceptions import NoComparablePairException
+from ..util import check_array_survival
+from ._prsvm import survival_constraints_simple, survival_constraints_with_support_vectors
 
 
-class Counter(object, metaclass=ABCMeta):
+class Counter(metaclass=ABCMeta):
     @abstractmethod
     def __init__(self, x, y, status, time=None):
         self.x, self.y = check_X_y(x, y)
@@ -176,7 +177,7 @@ class SurvivalCounter(Counter):
         return l_plus, xv_plus, l_minus, xv_minus
 
 
-class RankSVMOptimizer(object, metaclass=ABCMeta):
+class RankSVMOptimizer(metaclass=ABCMeta):
     """Abstract base class for all optimizers"""
     def __init__(self, alpha, rank_ratio, timeit=False):
         self.alpha = alpha
@@ -263,6 +264,9 @@ class SimpleOptimizer(RankSVMOptimizer):
         self.data_x = x
         self.constraints = survival_constraints_simple(numpy.asarray(y, dtype=numpy.uint8))
 
+        if self.constraints.shape[0] == 0:
+            raise NoComparablePairException("Data has no comparable pairs, cannot fit model.")
+
         self.L = numpy.ones(self.constraints.shape[0])
 
     @property
@@ -282,9 +286,8 @@ class SimpleOptimizer(RankSVMOptimizer):
 
     def _gradient_func(self, w):
         # sum over columns without running into overflow problems
-        # scipy.sparse.spmatrix.sum uses dtype of matrix, which is too small
-        col_sum = numpy.asmatrix(numpy.ones((1, self.Asv.shape[0]), dtype=numpy.int_)) * self.Asv
-        v = numpy.asarray(col_sum).squeeze()
+        col_sum = self.Asv.sum(axis=0, dtype=int)
+        v = col_sum.A.squeeze()
 
         z = numpy.dot(self.data_x.T, (self.Asv.T.dot(self.Asv.dot(self.xw)) - v))
         return w + self.alpha * z
@@ -303,6 +306,10 @@ class PRSVMOptimizer(RankSVMOptimizer):
         self.data_y = numpy.asarray(y, dtype=numpy.uint8)
         self._constraints = lambda w: survival_constraints_with_support_vectors(self.data_y, w)
 
+        Aw = self._constraints(numpy.zeros(x.shape[1]))
+        if Aw.shape[0] == 0:
+            raise NoComparablePairException("Data has no comparable pairs, cannot fit model.")
+
     @property
     def n_coefficients(self):
         return self.data_x.shape[1]
@@ -319,9 +326,8 @@ class PRSVMOptimizer(RankSVMOptimizer):
 
     def _gradient_func(self, w):
         # sum over columns without running into overflow problems
-        # scipy.sparse.spmatrix.sum uses dtype of matrix, which is too small
-        col_sum = numpy.asmatrix(numpy.ones((1, self.Aw.shape[0]), dtype=numpy.int_)) * self.Aw
-        v = numpy.asarray(col_sum).squeeze()
+        col_sum = self.Aw.sum(axis=0, dtype=int)
+        v = col_sum.A.squeeze()
         z = numpy.dot(self.data_x.T, self.Aw.T.dot(self.AXw) - v)
         return w + self.alpha * z
 
@@ -372,8 +378,15 @@ class LargeScaleOptimizer(RankSVMOptimizer):
 
     def _init_coefficients(self):
         w = super()._init_coefficients()
+        n = w.shape[0]
         if self._fit_intercept:
             w[0] = self._counter.time.mean()
+            n -= 1
+
+        l_plus, _, l_minus, _ = self._counter.calculate(numpy.zeros(n))
+        if numpy.all(l_plus == 0) and numpy.all(l_minus == 0):
+            raise NoComparablePairException("Data has no comparable pairs, cannot fit model.")
+
         return w
 
     def _split_coefficents(self, w):
@@ -418,7 +431,7 @@ class LargeScaleOptimizer(RankSVMOptimizer):
         l_plus, xv_plus, l_minus, xv_minus = self._counter.calculate(wf)  # pylint: disable=unused-variable
         x = self._counter.x
 
-        xw = self._xw  # noqa: F841
+        xw = self._xw  # noqa: F841; # pylint: disable=unused-variable
         z = numexpr.evaluate('(l_plus + l_minus) * xw - xv_plus - xv_minus - l_minus + l_plus')
 
         grad = wf + self._rank_penalty * numpy.dot(x.T, z)
@@ -431,7 +444,7 @@ class LargeScaleOptimizer(RankSVMOptimizer):
             # intercept
             if self._fit_intercept:
                 grad_intercept = self._regr_penalty * (xcs.sum() + xc.shape[0] * bias - self.y_compressed.sum())
-                grad = numpy.concatenate(([grad_intercept], grad))
+                grad = numpy.r_[grad_intercept, grad]
 
         return grad
 
@@ -455,7 +468,7 @@ class LargeScaleOptimizer(RankSVMOptimizer):
                 hessp += self._regr_penalty * xsum * s_bias
                 hessp_intercept = (self._regr_penalty * xc.shape[0] * s_bias
                                    + self._regr_penalty * numpy.dot(xsum, s_feat))
-                hessp = numpy.concatenate(([hessp_intercept], hessp))
+                hessp = numpy.r_[hessp_intercept, hessp]
 
         return hessp
 
@@ -498,8 +511,15 @@ class NonlinearLargeScaleOptimizer(RankSVMOptimizer):
 
     def _init_coefficients(self):
         w = super()._init_coefficients()
+        n = w.shape[0]
         if self._fit_intercept:
             w[0] = self._counter.time.mean()
+            n -= 1
+
+        l_plus, _, l_minus, _ = self._counter.calculate(numpy.zeros(n))
+        if numpy.all(l_plus == 0) and numpy.all(l_minus == 0):
+            raise NoComparablePairException("Data has no comparable pairs, cannot fit model.")
+
         return w
 
     def _split_coefficents(self, w):
@@ -558,11 +578,11 @@ class NonlinearLargeScaleOptimizer(RankSVMOptimizer):
             if self._fit_intercept:
                 grad_intercept = self._regr_penalty * (K_comp_beta.sum()
                                                        + K_comp.shape[0] * bias - self.y_compressed.sum())
-                gradient = numpy.concatenate(([grad_intercept], gradient))
+                gradient = numpy.r_[grad_intercept, gradient]
 
         return gradient
 
-    def _hessian_func(self, beta, s):
+    def _hessian_func(self, _beta, s):
         s_bias, s_feat = self._split_coefficents(s)
 
         K = self._counter.x
@@ -582,7 +602,7 @@ class NonlinearLargeScaleOptimizer(RankSVMOptimizer):
                 hessian += self._regr_penalty * xsum * s_bias
                 hessian_intercept = (self._regr_penalty * K_comp.shape[0] * s_bias
                                      + self._regr_penalty * numpy.dot(xsum, s_feat))
-                hessian = numpy.concatenate(([hessian_intercept], hessian))
+                hessian = numpy.r_[hessian_intercept, hessian]
 
         return hessian
 
@@ -632,6 +652,10 @@ class BaseSurvivalSVM(BaseEstimator, metaclass=ABCMeta):
 
         return optimizer
 
+    @property
+    def _predict_risk_score(self):
+        return self.rank_ratio == 1
+
     @abstractmethod
     def _fit(self, X, time, event, samples_order):
         """Create and run optimizer"""
@@ -639,6 +663,9 @@ class BaseSurvivalSVM(BaseEstimator, metaclass=ABCMeta):
     @abstractmethod
     def predict(self, X):
         """Predict risk score"""
+
+    def _validate_for_fit(self, X):
+        return self._validate_data(X, ensure_min_samples=2)
 
     def fit(self, X, y):
         """Build a survival support vector machine model from training data.
@@ -657,7 +684,8 @@ class BaseSurvivalSVM(BaseEstimator, metaclass=ABCMeta):
         -------
         self
         """
-        X, event, time = check_arrays_survival(X, y)
+        X = self._validate_for_fit(X)
+        event, time = check_array_survival(X, y)
 
         if self.alpha <= 0:
             raise ValueError("alpha must be positive")
@@ -751,10 +779,7 @@ class FastSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
     objective is used, survival/censoring times are log-transform and thus cannot be
     zero or negative.
 
-    See :class:`sksurv.svm.FastKernelSurvivalSVM` for an efficient implementation
-    of kernel Survival Support Vector Machine.
-
-    See [1]_ for further description.
+    See the :ref:`User Guide </user_guide/survival-svm.ipynb>` and [1]_ for further description.
 
     Parameters
     ----------
@@ -781,7 +806,7 @@ class FastSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
         Tolerance for termination. For detailed control, use solver-specific
         options.
 
-    optimizer : "avltree" | "direct-count" | "PRSVM" | "rbtree" | "simple", optional, default: avltree)
+    optimizer : "avltree" | "direct-count" | "PRSVM" | "rbtree" | "simple", optional, default: avltree
         Which optimizer to use.
 
     random_state : int or :class:`numpy.random.RandomState` instance, optional
@@ -799,6 +824,18 @@ class FastSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
 
     optimizer_result_ : :class:`scipy.optimize.optimize.OptimizeResult`
         Stats returned by the optimizer. See :class:`scipy.optimize.optimize.OptimizeResult`.
+
+    n_features_in_ : int
+        Number of features seen during ``fit``.
+
+    feature_names_in_ : ndarray of shape (`n_features_in_`,)
+        Names of features seen during ``fit``. Defined only when `X`
+        has feature names that are all strings.
+
+    See also
+    --------
+    FastKernelSurvivalSVM
+        Fast implementation for arbitrary kernel functions.
 
     References
     ----------
@@ -839,6 +876,9 @@ class FastSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
         y : ndarray, shape = (n_samples,)
             Predicted ranks.
         """
+        check_is_fitted(self, "coef_")
+        X = self._validate_data(X, reset=False)
+
         val = numpy.dot(X, self.coef_)
         if hasattr(self, "intercept_"):
             val += self.intercept_
@@ -856,7 +896,7 @@ class FastSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
 class FastKernelSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
     """Efficient Training of kernel Survival Support Vector Machine.
 
-    See [1]_ for further description.
+    See the :ref:`User Guide </user_guide/survival-svm.ipynb>` and [1]_ for further description.
 
     Parameters
     ----------
@@ -915,13 +955,26 @@ class FastKernelSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
     Attributes
     ----------
     coef_ : ndarray, shape = (n_samples,)
-        Coefficients of the features in the decision function.
+        Weights assigned to the samples in training data to represent
+        the decision function in kernel space.
 
     fit_X_ : ndarray
         Training data.
 
     optimizer_result_ : :class:`scipy.optimize.optimize.OptimizeResult`
         Stats returned by the optimizer. See :class:`scipy.optimize.optimize.OptimizeResult`.
+
+    n_features_in_ : int
+        Number of features seen during ``fit``.
+
+    feature_names_in_ : ndarray of shape (`n_features_in_`,)
+        Names of features seen during ``fit``. Defined only when `X`
+        has feature names that are all strings.
+
+    See also
+    --------
+    FastSurvivalSVM
+        Fast implementation for linear kernel.
 
     References
     ----------
@@ -943,10 +996,9 @@ class FastKernelSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
         self.coef0 = coef0
         self.kernel_params = kernel_params
 
-    @property
-    def _pairwise(self):
+    def _more_tags(self):
         # tell sklearn.utils.metaestimators._safe_split function that we expect kernel matrix
-        return self.kernel == "precomputed"
+        return {"pairwise": self.kernel == "precomputed"}
 
     def _get_kernel(self, X, Y=None):
         if callable(self.kernel):
@@ -978,6 +1030,11 @@ class FastKernelSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
             raise ValueError('unknown optimizer: {0}'.format(self.optimizer))
 
         return optimizer
+
+    def _validate_for_fit(self, X):
+        if self.kernel != "precomputed":
+            return super()._validate_for_fit(X)
+        return X
 
     def _fit(self, X, time, event, samples_order):
         # don't reorder X here, because it might be a precomputed kernel matrix
@@ -1016,6 +1073,7 @@ class FastKernelSurvivalSVM(BaseSurvivalSVM, SurvivalAnalysisMixin):
         y : ndarray, shape = (n_samples,)
             Predicted ranks.
         """
+        X = self._validate_data(X, reset=False)
         kernel_mat = self._get_kernel(X, self.fit_X_)
 
         val = numpy.dot(kernel_mat, self.coef_)

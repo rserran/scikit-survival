@@ -1,11 +1,16 @@
-from os.path import join, dirname
+from os.path import dirname, join
 
 import numpy
-from numpy.testing import assert_array_equal, assert_array_almost_equal
+from numpy.testing import assert_array_almost_equal, assert_array_equal
 import pandas
 import pytest
 
-from sksurv.nonparametric import kaplan_meier_estimator, nelson_aalen_estimator, SurvivalFunctionEstimator
+from sksurv.nonparametric import (
+    CensoringDistributionEstimator,
+    SurvivalFunctionEstimator,
+    kaplan_meier_estimator,
+    nelson_aalen_estimator,
+)
 from sksurv.util import Surv
 
 CHANNING_FILE = join(dirname(__file__), 'data', 'channing.csv')
@@ -46,7 +51,7 @@ def simple_data_km(request):
             [1, 0.866666666666667, 0.733333333333333, 0.6, 0.466666666666667, 0.4,
              0.333333333333333, 0.266666666666667, 0.133333333333333, 0.0666666666666667, 0.0666666666666667])
     else:
-        assert False, 'should not be reached'
+        raise AssertionError('should not be reached')
 
     return time, event, true_x, true_y
 
@@ -80,14 +85,14 @@ def simple_data_na(request):
             [0, 0.133333333333333, 0.287179487179487, 0.468997668997669, 0.691219891219891, 0.834077034077034,
              1.0007437007437, 1.2007437007437, 1.7007437007437, 2.2007437007437, 2.2007437007437])
     else:
-        assert False, 'should not be reached'
+        raise AssertionError('should not be reached')
 
     return time, event, true_x, true_y
 
 
-@pytest.fixture
+@pytest.fixture()
 def make_channing():
-    def _make_channing(sex):
+    def _make_channing(sex):  # pylint: disable=unused-argument
         data = pandas.read_csv(CHANNING_FILE).query("entry < exit and sex == @sex")
         time_enter_m = data.loc[:, "entry"].values
         time_exit_m = data.loc[:, "exit"].values
@@ -96,7 +101,7 @@ def make_channing():
     return _make_channing
 
 
-@pytest.fixture
+@pytest.fixture()
 def make_aids():
     def _make_aids(kind):
         if kind == 'children':
@@ -114,7 +119,7 @@ def make_aids():
     return _make_aids
 
 
-class TestKaplanMeier(object):
+class TestKaplanMeier:
 
     @staticmethod
     def test_simple(simple_data_km):
@@ -172,7 +177,7 @@ class TestKaplanMeier(object):
              2064, 2065, 2066, 2083, 2084, 2086, 2100, 2108, 2113, 2114, 2118, 2122, 2123, 2125, 2126, 2131, 2132, 2139,
              2145, 2146, 2151, 2152, 2156, 2160, 2166, 2168, 2172, 2173, 2175, 2178, 2190, 2192, 2350, 2353, 2358])
 
-        assert_array_equal(x.astype(numpy.int_), true_x)
+        assert_array_equal(x.astype(int), true_x)
 
         true_y = numpy.array(
             [0.984, 0.968, 0.962, 0.958, 0.954, 0.944, 0.932, 0.926, 0.918, 0.914, 0.912, 0.908, 0.902, 0.896, 0.892,
@@ -447,8 +452,31 @@ class TestKaplanMeier(object):
         assert_array_almost_equal(-x[::-1], true_x, 2)
         assert_array_almost_equal(y[::-1], true_y, 2)
 
+    @staticmethod
+    def test_censoring_distribution():
+        y = Surv.from_arrays(numpy.array([1, 0, 0, 1, 0, 1, 0, 1, 1, 0], dtype=bool),
+                             numpy.array([1, 2, 3, 3, 3, 4, 5, 5, 6, 7]))
 
-class TestNelsonAalen(object):
+        cens = CensoringDistributionEstimator().fit(y)
+
+        probs = cens.predict_proba(numpy.arange(1, 8))
+        expected = numpy.array([1.0, 0.8888889, 0.6349206, 0.6349206, 0.4232804, 0.4232804, 0.0000000])
+
+        assert_array_almost_equal(expected, probs)
+
+    @staticmethod
+    def test_truncated_reverse_error():
+        rnd = numpy.random.RandomState(2016)
+        time_exit = rnd.uniform(1, 100, size=25)
+        time_enter = time_exit + 1
+        event = rnd.binomial(1, 0.6, size=25).astype(bool)
+
+        with pytest.raises(ValueError,
+                           match="The censoring distribution cannot be estimated from left truncated data"):
+            kaplan_meier_estimator(event, time_exit, time_enter, reverse=True)
+
+
+class TestNelsonAalen:
 
     @staticmethod
     def test_simple(simple_data_na):
@@ -488,7 +516,7 @@ class TestNelsonAalen(object):
              2064, 2065, 2066, 2083, 2084, 2086, 2100, 2108, 2113, 2114, 2118, 2122, 2123, 2125, 2126, 2131, 2132, 2139,
              2145, 2146, 2151, 2152, 2156, 2160, 2166, 2168, 2172, 2173, 2175, 2178, 2190, 2192, 2350, 2353, 2358])
 
-        assert_array_equal(x.astype(numpy.int_), true_x)
+        assert_array_equal(x.astype(int), true_x)
 
         true_y = numpy.array(
             [0.016, 0.032260162601626, 0.038458509709064, 0.0426165138670682, 0.0467918792115359, 0.0572740595050369,

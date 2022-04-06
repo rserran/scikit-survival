@@ -1,20 +1,23 @@
 # AppVeyor.com is a Continuous Integration service to build and run tests under
 # Windows
+image: Visual Studio 2019
 
 environment:
   # see https://www.appveyor.com/docs/build-environment/#python
   matrix:
-    # cvxopt is only available for python <3.5
-    # https://github.com/cvxopt/cvxopt/issues/94
-    - TARGET_ARCH: "x64"
-      CONDA_PY: "35"
-      CONDA_INSTALL_LOCN: "C:\\Miniconda35-x64"
-    - TARGET_ARCH: "x64"
-      CONDA_PY: "36"
-      CONDA_INSTALL_LOCN: "C:\\Miniconda36-x64"
     - TARGET_ARCH: "x64"
       CONDA_PY: "37"
-      CONDA_INSTALL_LOCN: "C:\\Miniconda37-x64"
+      CONDA_INSTALL_LOCN: "C:\\Miniconda38-x64"
+    - TARGET_ARCH: "x64"
+      CONDA_PY: "38"
+      CONDA_INSTALL_LOCN: "C:\\Miniconda38-x64"
+    - TARGET_ARCH: "x64"
+      CONDA_PY: "39"
+      CONDA_INSTALL_LOCN: "C:\\Miniconda38-x64"
+    - TARGET_ARCH: "x64"
+      CONDA_PY: "310"
+      CONDA_INSTALL_LOCN: "C:\\Miniconda38-x64"
+
 
 # We always use a 64-bit machine.
 platform:
@@ -37,7 +40,7 @@ install:
   # Initialize the submodules
   - cmd: git submodule update --init --recursive
   # Create binary packages for the project.
-  - cmd: python setup.py bdist_wheel bdist_wininst
+  - cmd: pip wheel --wheel-dir dist/ --no-binary scikit-survival --no-deps -e .
   - ps: "ls dist"
 
   # Install the generated wheel package to test it
@@ -46,7 +49,7 @@ install:
 
 test_script:
   - cmd: set "PYTHONWARNINGS=default"
-  - cmd: py.test -m "not slow" -k "not test_breast_cancer_rbf_cvxopt" tests/
+  - cmd: py.test -m "not slow" tests/
 
 artifacts:
   # Archive the generated wheel package in the ci.appveyor.com build report.

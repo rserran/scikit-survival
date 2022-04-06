@@ -1,18 +1,19 @@
-from os.path import join, dirname
+from os.path import dirname, join
 
 import numpy
 from numpy.testing import assert_array_almost_equal
 import pandas
 import pytest
 from sklearn.exceptions import ConvergenceWarning
+from sklearn.pipeline import make_pipeline
 
-from sksurv import column
-from sksurv.datasets import load_breast_cancer, get_x_y
+from sksurv.datasets import get_x_y, load_breast_cancer
 from sksurv.linear_model.coxnet import CoxnetSurvivalAnalysis
 from sksurv.preprocessing import OneHotEncoder
 from sksurv.util import Surv
 
 BREAST_CANCER_COEFFICIENTS_FILE = join(dirname(__file__), 'data', 'breast_cancer_glmnet_coefficients.csv')
+BREAST_CANCER_HIGH_COEFFICIENTS_FILE = join(dirname(__file__), 'data', 'breast_cancer_glmnet_coefficients_high.csv')
 EXAMPLE_FILE = join(dirname(__file__), 'data', 'cox-example.csv')
 EXAMPLE_COEF_FILE = join(dirname(__file__), 'data', 'cox-example-coef-{}.csv')
 SIMPLE_COEF_FILE = join(dirname(__file__), 'data', 'cox-simple-coef.csv')
@@ -38,12 +39,17 @@ def infinite_float_array(request):
     return penalty
 
 
-@pytest.fixture
+@pytest.fixture()
 def make_example_coef():
     def _make_example_coef(kind):
         return pandas.read_csv(EXAMPLE_COEF_FILE.format(kind))
 
     return _make_example_coef
+
+
+@pytest.fixture(params=[False, True])
+def normalize_options(request):
+    return request.param
 
 
 def assert_columns_almost_equal(actual, expected, decimal=6):
@@ -62,16 +68,23 @@ def assert_predictions_equal(coxnet, x, expected_pred):
     assert_array_almost_equal(pred_last, expected_pred[-1])
 
 
-class TestCoxnetSurvivalAnalysis(object):
-    def _fit_example(self, **kwargs):
+@pytest.fixture()
+def make_fit_example():
+    def _fit_example(**kwargs):
         x, y = get_x_y(pandas.read_csv(EXAMPLE_FILE), ["status", "time"],
                        pos_label=1)
         coxnet = CoxnetSurvivalAnalysis(**kwargs)
-        coxnet.fit(x.values, y)
+        coxnet.fit(x, y)
 
         return x, coxnet
 
-    def test_example_1(self, make_example_coef):
+    return _fit_example
+
+
+class TestCoxnetSurvivalAnalysis:
+
+    @staticmethod
+    def test_example_1(make_fit_example, make_example_coef):
         expected_alphas = numpy.array(
             [0.468899812444165, 0.427244045448662, 0.389288861984934, 0.354705512411255, 0.323194452297996,
              0.294482747917078, 0.268321712220587, 0.244484750832538, 0.222765399396784, 0.202975535281541,
@@ -85,7 +98,7 @@ class TestCoxnetSurvivalAnalysis(object):
              0.00712686021728439, 0.00649372959803068, 0.00591684455801036, 0.00539120839498366, 0.00491226829996627,
              0.00447587592297602])
 
-        x, coxnet = self._fit_example(l1_ratio=0.5)
+        x, coxnet = make_fit_example(alpha_min_ratio=0.0001, l1_ratio=0.5)
         assert_array_almost_equal(expected_alphas, coxnet.alphas_)
 
         expected_coef = make_example_coef(1)
@@ -106,6 +119,9 @@ class TestCoxnetSurvivalAnalysis(object):
         ])
         assert_array_almost_equal(coxnet.deviance_ratio_, expected_dev)
 
+        expected_offset = numpy.dot(numpy.mean(x.values, axis=0), expected_coef)
+        assert_array_almost_equal(coxnet.offset_, expected_offset)
+
         expected_pred = numpy.array([
             0, 0.00140948454488767, 0.00160298997140239, -0.00830742573928443, -0.0174234349495347, -0.0200048263613719,
             -0.0224801816347042, -0.0248329460065182, -0.0216924070471563, -0.0325287602403503, -0.0510221489452056,
@@ -117,10 +133,11 @@ class TestCoxnetSurvivalAnalysis(object):
             -0.375502769096629, -0.379949069210773, -0.384261695764238, -0.388813847771416, -0.393135194649681,
             -0.397093422412222, -0.40046816729172, -0.402004566839427, -0.40331328958967, -0.404500835078198,
             -0.405588873666053, -0.406584748259676, -0.407495670627834, -0.407927461818659, -0.408063340186696
-        ])
+        ]) - expected_offset
         assert_predictions_equal(coxnet, x, expected_pred)
 
-    def test_example_1_penalty_factor_1(self, make_example_coef):
+    @staticmethod
+    def test_example_1_penalty_factor_1(make_fit_example, make_example_coef):
         expected_alphas = numpy.array(
             [1.58712986523032, 1.44613362231646, 1.31766309702114, 1.20060553911345, 1.09394705202614, 0.99676381096855,
              0.908214061198282, 0.827530827144269, 0.754015269231302, 0.687030630865956, 0.625996723155588,
@@ -138,13 +155,16 @@ class TestCoxnetSurvivalAnalysis(object):
 
         pf = numpy.ones(30)
         pf[4] = 0.125
-        x, coxnet = self._fit_example(l1_ratio=0.5, penalty_factor=pf)
+        x, coxnet = make_fit_example(alpha_min_ratio=0.0001, l1_ratio=0.5, penalty_factor=pf)
 
         assert_array_almost_equal(expected_alphas, coxnet.alphas_)
 
         expected_coef = make_example_coef("1-pf")
         coef = pandas.DataFrame(coxnet.coef_, columns=expected_coef.columns, dtype=float)
         assert_columns_almost_equal(coef, expected_coef)
+
+        expected_offset = numpy.dot(numpy.mean(x.values, axis=0), expected_coef)
+        assert_array_almost_equal(coxnet.offset_, expected_offset)
 
         expected_pred = numpy.array([
             0, -0.0219470160430587, -0.0423872317402525, -0.0613777857697107, -0.0789932877972767, -0.0953091589085253,
@@ -160,10 +180,11 @@ class TestCoxnetSurvivalAnalysis(object):
             -0.403587140384981, -0.405974801639294, -0.408793015715854, -0.411377351836687, -0.413496980133616,
             -0.414144504730355, -0.41438652016618, -0.414598984650713, -0.414796366581722, -0.414979630970168,
             -0.415149243472181, -0.415305936592074, -0.414884495552163
-        ])
+        ]) - expected_offset
         assert_predictions_equal(coxnet, x, expected_pred)
 
-    def test_example_1_penalty_factor_2(self, make_example_coef):
+    @staticmethod
+    def test_example_1_penalty_factor_2(make_fit_example, make_example_coef):
         expected_alphas = numpy.array(
             [1.58712986523032, 1.44613362231646, 1.31766309702114, 1.20060553911345, 1.09394705202614, 0.99676381096855,
              0.908214061198282, 0.827530827144269, 0.754015269231302, 0.687030630865956, 0.625996723155588,
@@ -183,13 +204,16 @@ class TestCoxnetSurvivalAnalysis(object):
         pf[4] = 0.125
         pf[10] = 1.25
         pf[12] = 0.75
-        x, coxnet = self._fit_example(l1_ratio=0.5, penalty_factor=pf)
+        x, coxnet = make_fit_example(alpha_min_ratio=0.0001, l1_ratio=0.5, penalty_factor=pf)
 
         assert_array_almost_equal(expected_alphas, coxnet.alphas_)
 
         expected_coef = make_example_coef("1-pf2")
         coef = pandas.DataFrame(coxnet.coef_, columns=expected_coef.columns, dtype=float)
         assert_columns_almost_equal(coef, expected_coef)
+
+        expected_offset = numpy.dot(numpy.mean(x.values, axis=0), expected_coef)
+        assert_array_almost_equal(coxnet.offset_, expected_offset)
 
         expected_pred = numpy.array([
             0, -0.0219470160430587, -0.0423872317402525, -0.0613777857697107, -0.0789932877972767, -0.0953091589085253,
@@ -205,10 +229,11 @@ class TestCoxnetSurvivalAnalysis(object):
             -0.397870315511183, -0.401029223528979, -0.404277261469497, -0.407255492228115, -0.409734816795972,
             -0.410650182963323, -0.411197059249143, -0.411692846517166, -0.412145302413102, -0.412561364082062,
             -0.4129435341443, -0.41329427736124, -0.413095216567575
-        ])
+        ]) - expected_offset
         assert_predictions_equal(coxnet, x, expected_pred)
 
-    def test_example_1_unpenalized(self, make_example_coef):
+    @staticmethod
+    def test_example_1_unpenalized(make_fit_example, make_example_coef):
         expected_alphas = numpy.array(
             [0.486489606631737, 0.443271210800114, 0.403892218139282, 0.368011546653386, 0.335318415131023,
              0.305529651307061, 0.278387239159946, 0.253656084100358, 0.231121976694345, 0.210589737283679,
@@ -225,13 +250,16 @@ class TestCoxnetSurvivalAnalysis(object):
         pf = numpy.ones(30)
         pf[0] = 0
         pf[29] = 0
-        x, coxnet = self._fit_example(l1_ratio=0.5, penalty_factor=pf)
+        x, coxnet = make_fit_example(alpha_min_ratio=0.0001, l1_ratio=0.5, penalty_factor=pf)
 
         assert_array_almost_equal(expected_alphas, coxnet.alphas_)
 
         expected_coef = make_example_coef("1-unpen")
         coef = pandas.DataFrame(coxnet.coef_, columns=expected_coef.columns, dtype=float)
         assert_columns_almost_equal(coef, expected_coef)
+
+        expected_offset = numpy.dot(numpy.mean(x.values, axis=0), expected_coef)
+        assert_array_almost_equal(coxnet.offset_, expected_offset)
 
         expected_pred = numpy.array([
             0.0373756105322525, 0.0389973815599095, 0.0405683877195706, 0.0280831344913328, 0.0159083690720834,
@@ -245,10 +273,11 @@ class TestCoxnetSurvivalAnalysis(object):
             -0.392161768186302, -0.395575701614631, -0.397949529352037, -0.399599074245129, -0.401120250339891,
             -0.402505065734498, -0.403764001966903, -0.404916031377837, -0.405970148147989, -0.406934334318935,
             -0.407120115909973
-        ])
+        ]) - expected_offset
         assert_predictions_equal(coxnet, x, expected_pred)
 
-    def test_example_2(self, make_example_coef):
+    @staticmethod
+    def test_example_2(make_fit_example, make_example_coef):
         expected_alphas = numpy.array(
             [0.260499895802314, 0.237357803027034, 0.21627158999163, 0.197058618006253, 0.179552473498887,
              0.163601526620599, 0.149067617900326, 0.135824861573632, 0.123758555220435, 0.112764186267523,
@@ -261,7 +290,7 @@ class TestCoxnetSurvivalAnalysis(object):
              0.00630443160807172, 0.00574436327975223, 0.00523404987810766, 0.00476907131258251, 0.004345400161284,
              0.00395936678738022, 0.00360762755446149, 0.00328713586556131, 0.00299511577499092])
 
-        x, coxnet = self._fit_example(l1_ratio=0.9)
+        x, coxnet = make_fit_example(alpha_min_ratio=0.0001, l1_ratio=0.9)
 
         assert_array_almost_equal(expected_alphas, coxnet.alphas_)
 
@@ -283,6 +312,9 @@ class TestCoxnetSurvivalAnalysis(object):
         ])
         assert_array_almost_equal(coxnet.deviance_ratio_, expected_dev)
 
+        expected_offset = numpy.dot(numpy.mean(x.values, axis=0), expected_coef)
+        assert_array_almost_equal(coxnet.offset_, expected_offset)
+
         expected_pred = numpy.array([
             0, 0.00196016970842094, 0.00140611753838389, -0.0116396716112419, -0.022089013534796, -0.0250863119930773,
             -0.0278225590136988, -0.0302883122217436, -0.0221472435312749, -0.0381375326325586, -0.0662858762239503,
@@ -294,10 +326,11 @@ class TestCoxnetSurvivalAnalysis(object):
             -0.385584019971888, -0.389340460428481, -0.392932674551871, -0.396271896579473, -0.399949396718947,
             -0.403353040387268, -0.405235426737329, -0.406286722398451, -0.407239920728446, -0.408098144214668,
             -0.408543625518507, -0.409505822297035, -0.409923859178006
-        ])
+        ]) - expected_offset
         assert_predictions_equal(coxnet, x, expected_pred)
 
-    def test_example_2_normalize(self, make_example_coef):
+    @staticmethod
+    def test_example_2_normalize(make_fit_example, make_example_coef):
         expected_alphas = numpy.array(
             [0.00831887750878913, 0.00757985135869546, 0.0069064782549347, 0.00629292576181799, 0.00573387958116825,
              0.00522449752241159, 0.00476036756183909, 0.00433746962776807, 0.00395214078060438, 0.00360104348621191,
@@ -313,7 +346,7 @@ class TestCoxnetSurvivalAnalysis(object):
              8.71498712373515e-05, 7.94077168717352e-05, 7.23533541616886e-05, 6.59256815921643e-05,
              6.00690257383086e-05, 5.47326590488896e-05])
 
-        x, coxnet = self._fit_example(l1_ratio=0.9, normalize=True)
+        x, coxnet = make_fit_example(alpha_min_ratio=0.0001, l1_ratio=0.9, normalize=True)
 
         assert_array_almost_equal(expected_alphas, coxnet.alphas_)
 
@@ -321,25 +354,28 @@ class TestCoxnetSurvivalAnalysis(object):
         coef = pandas.DataFrame(coxnet.coef_, columns=expected_coef.columns, dtype=float)
         assert_columns_almost_equal(coef, expected_coef)
 
+        expected_offset = numpy.dot(numpy.mean(x.values, axis=0), expected_coef)
+        assert_array_almost_equal(coxnet.offset_, expected_offset)
+
         expected_pred = numpy.array([
-            0, 0.0200226427002756, -0.0132864652217919, -0.195695033468803, -0.379805498473001, -0.461423510865113,
-            -0.51290628721436, -0.564121426824778, -0.614835044106511, -0.870140455743473, -1.21451474553013,
-            -1.65330117918825, -2.37581603511797, -3.08207656410986, -3.76353399963545, -4.40412874701735,
-            -4.9131587527418, -5.40559146547059, -5.88051492571901, -6.33738965885927, -6.77579930259304,
-            -7.19544591698188, -7.58824930426235, -7.88283769025308, -8.17029718119258, -8.44519528751064,
-            -8.70715218119886, -8.96236550090301, -9.2046718807612, -9.4157986925677, -9.58294203475202,
-            -9.73233333877946, -9.91960246035761, -10.1098514287374, -10.3284786095762, -10.5251721392876,
-            -10.7156708594676, -10.8936213816553, -11.0882566974949, -11.2805325923368, -11.4581895304248,
-            -11.6221787745943, -11.7734319972722, -11.9128564853398, -12.041266644828, -12.1048477697581,
-            -12.157813645944, -12.1990911046183, -12.2378380608187, -12.2647532662837, -12.2898323148056,
-            -12.3129678566791, -12.3367564940579, -12.358304617252, -12.3780929390135
-        ])
+            0, 0.000639408747219786, -0.00052949581811348, -0.00655544513119031, -0.0126379123842854,
+            -0.0154908462985011, -0.0173929193691804, -0.019286506654261, -0.0211630424740022, -0.0298515402290131,
+            -0.0415450906301397, -0.0561550947027854, -0.0794886384588791, -0.102298331006247, -0.124312860420833,
+            -0.145023690076741, -0.161527852664137, -0.177495378416267, -0.192896322287149, -0.207713020484007,
+            -0.221931814547868, -0.235542897596703, -0.248302871817807, -0.258066101598933, -0.267578020734177,
+            -0.276668591810926, -0.285326398847612, -0.293735142605935, -0.301713974346824, -0.308695984478683,
+            -0.314247838968584, -0.319176436422011, -0.325263490815563, -0.331441729472062, -0.338538969805117,
+            -0.344920772188639, -0.351102580604316, -0.356876599562591, -0.363158677531647, -0.369352370626939,
+            -0.375075124027788, -0.380357592110288, -0.385230301184507, -0.3897221161163, -0.393859049671187,
+            -0.395986139303465, -0.397770798375561, -0.399167571117783, -0.400486682367687, -0.40143075878309,
+            -0.402309388629067, -0.403119489802433, -0.403943664491923, -0.404691055430968, -0.405377242302289
+        ]) - expected_offset
         assert_predictions_equal(coxnet, x, expected_pred)
 
     @staticmethod
     def test_example_2_standardize(make_example_coef):
-        from sklearn.preprocessing import StandardScaler
         from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
 
         x, y = get_x_y(pandas.read_csv(EXAMPLE_FILE), ["status", "time"],
                        pos_label=1)
@@ -356,7 +392,7 @@ class TestCoxnetSurvivalAnalysis(object):
              0.0039983693660421, 0.00364316525153066, 0.00331951649156886, 0.0030246197954287])
 
         scaler = StandardScaler()
-        coxnet = CoxnetSurvivalAnalysis(l1_ratio=0.9)
+        coxnet = CoxnetSurvivalAnalysis(alpha_min_ratio=0.0001, l1_ratio=0.9)
         pipe = Pipeline([("standardize", scaler),
                          ("coxnet", coxnet)])
         pipe.fit(x.values, y)
@@ -369,10 +405,11 @@ class TestCoxnetSurvivalAnalysis(object):
                                 columns=expected_coef.columns, dtype=float)
         assert_columns_almost_equal(coef, expected_coef, 5)
 
-    def test_example_2_with_alpha(self, make_example_coef):
+    @staticmethod
+    def test_example_2_with_alpha(make_fit_example, make_example_coef):
         expected_alphas = numpy.array([0.45, 0.4, 0.35, 0.25, 0.1, 0.05, 0.001])
 
-        x, coxnet = self._fit_example(l1_ratio=0.9, alphas=expected_alphas, normalize=True)
+        x, coxnet = make_fit_example(alpha_min_ratio=0.0001, l1_ratio=0.9, alphas=expected_alphas, normalize=True)
 
         assert_array_almost_equal(expected_alphas, coxnet.alphas_)
 
@@ -380,33 +417,42 @@ class TestCoxnetSurvivalAnalysis(object):
         coef = pandas.DataFrame(coxnet.coef_, columns=expected_coef.columns, dtype=float)
         assert_columns_almost_equal(coef, expected_coef)
 
-        expected_pred = numpy.array([0, 0, 0, 0, 0, 0, -7.82043051660585])
+        expected_offset = numpy.dot(numpy.mean(x.values, axis=0), expected_coef)
+        assert_array_almost_equal(coxnet.offset_, expected_offset)
+
+        expected_pred = numpy.array([0, 0, 0, 0, 0, 0, -0.25599344616167]) - expected_offset
         assert_predictions_equal(coxnet, x, expected_pred)
 
-    def test_example_2_with_n_alpha(self, make_example_coef):
+    @staticmethod
+    def test_example_2_with_n_alpha_and_norm(make_fit_example, make_example_coef):
         expected_alphas = numpy.array([
             0.00831887750878913, 0.00416931520551416, 0.00208960755397176, 0.00104728462934176, 0.00052488568620016,
             0.000263066005037211, 0.000131845323325978, 6.607919286444e-05, 3.31180478720517e-05, 1.65983427961291e-05,
             8.31887750878913e-06])
 
-        x, coxnet = self._fit_example(l1_ratio=0.9, n_alphas=11,
-                                      alpha_min_ratio=0.001,
-                                      normalize=True)
+        x, coxnet = make_fit_example(l1_ratio=0.9, n_alphas=11,
+                                     alpha_min_ratio=0.001,
+                                     normalize=True)
 
         assert_array_almost_equal(expected_alphas, coxnet.alphas_)
 
-        expected_coef = make_example_coef("2-nalpha")
+        expected_coef = make_example_coef("2-nalpha-norm")
         coef = pandas.DataFrame(coxnet.coef_, columns=expected_coef.columns, dtype=float)
         assert_columns_almost_equal(coef, expected_coef)
 
+        expected_offset = numpy.dot(numpy.mean(x.values, axis=0), expected_coef)
+        assert_array_almost_equal(coxnet.offset_, expected_offset)
+
         expected_pred = numpy.array([
-            0, -0.585544346463982, -4.3131376746924, -7.67018844671395, -9.54168719460625, -10.920819487563,
-            -12.0733454980442, -12.3385685033175, -12.4597634855469, -12.530947384041, -12.5681225386368])
+            0, -0.0200793716023623, -0.142080657028422, -0.251017077112929, -0.31287130943375, -0.357757777608831,
+            -0.394929617816296, -0.404002085451039, -0.408212946743633, -0.410651291215939, -0.411910901429096
+        ]) - expected_offset
         assert_predictions_equal(coxnet, x, expected_pred)
 
-    def test_example_2_predict(self):
-        x, coxnet = self._fit_example(l1_ratio=0.9, n_alphas=11,
-                                      alpha_min_ratio=0.001)
+    @staticmethod
+    def test_example_2_with_n_alpha_interpolation(make_fit_example, make_example_coef):
+        x, coxnet = make_fit_example(l1_ratio=0.9, n_alphas=11,
+                                     alpha_min_ratio=0.001)
 
         expected_alphas = numpy.array(
             [0.260499895802314, 0.130559222137355, 0.0654346153675493, 0.0327949938595266, 0.0164364322492795,
@@ -414,21 +460,30 @@ class TestCoxnetSurvivalAnalysis(object):
              0.000260499895802314])
         assert_array_almost_equal(expected_alphas, coxnet.alphas_)
 
+        expected_coef = make_example_coef("2-nalpha")
+        coef = pandas.DataFrame(coxnet.coef_, columns=expected_coef.columns, dtype=float)
+        assert_columns_almost_equal(coef, expected_coef)
+
+        expected_offset = numpy.array(
+            [0, 0.000691134372356494, 0.00398228309120452, 0.00727343181005256, 0.0120190989555886, 0.0148545910591148]
+        )
+
         expected_pred = numpy.array([
             [0, -0.00238292430438636, -0.0137302955033516, -0.0250776667023169, -0.11170732289777, -0.178968215018837],
             [0, 0.019393427730732, 0.111744000040494, 0.204094572350256, 0.202194208945816, 0.1712643455565],
             [0, -0.0142582806836494, -0.0821555291520897, -0.15005277762053, -0.227574637069682, -0.269396998188837],
             [0, -1.68697383231657e-05, -9.72026227669121e-05, -0.000177535507210586, 0.0889321572547518,
              0.161856892574037]
-        ])
+        ]) - expected_offset[numpy.newaxis]
         pred = numpy.column_stack([
             coxnet.predict(x.iloc[[122, 10, 22, 200], :], alpha=a) for a in [0.75, 0.25, 0.2, 0.15, 0.1, 0.075]])
         assert_array_almost_equal(pred, expected_pred)
 
-    def test_example_2_predict_func(self):
-        x, coxnet = self._fit_example(l1_ratio=0.9, n_alphas=11,
-                                      alpha_min_ratio=0.001,
-                                      fit_baseline_model=True)
+    @staticmethod
+    def test_example_2_predict_func(make_fit_example):
+        x, coxnet = make_fit_example(l1_ratio=0.9, n_alphas=11,
+                                     alpha_min_ratio=0.001,
+                                     fit_baseline_model=True)
 
         xtest = x.iloc[[122, 10, 22, 200], :]
         for a in [None] + list(coxnet.alphas_):
@@ -438,91 +493,190 @@ class TestCoxnetSurvivalAnalysis(object):
             sf = coxnet.predict_survival_function(xtest, alpha=a)
             assert len(sf) == 4
 
-    def test_predict_func_disabled(self):
-        x, coxnet = self._fit_example(l1_ratio=0.9, n_alphas=11,
-                                      alpha_min_ratio=0.001,
-                                      fit_baseline_model=False)
+    @staticmethod
+    @pytest.mark.parametrize('fn', ["baseline_survival_", "cum_baseline_hazard_"])
+    def test_baseline_models(breast_cancer, fn, normalize_options):
+        X, y = breast_cancer
+
+        X_test = X.iloc[:19]
+        X_train = X.iloc[19:]
+        y_train = y[19:]
+
+        coxnet_1 = CoxnetSurvivalAnalysis(
+            fit_baseline_model=True, alpha_min_ratio=0.001, n_alphas=23, normalize=normalize_options
+        )
+        coxnet_1.fit(X_train, y_train)
+
+        coxnet_2 = CoxnetSurvivalAnalysis()
+        coxnet_2.set_params(**coxnet_1.get_params())
+        Xm = X_train.mean()
+        X_train_t = X_train - Xm
+        X_test_t = X_test - Xm
+        coxnet_2.fit(X_train_t, y_train)
+
+        assert_array_almost_equal(coxnet_1.coef_, coxnet_2.coef_)
+        assert_array_almost_equal(coxnet_1.alphas_, coxnet_2.alphas_)
+
+        for k, (a_1, a_2) in enumerate(zip(coxnet_1.alphas_, coxnet_2.alphas_)):
+            c0 = coxnet_1.predict(X_test, a_1)
+            c1 = coxnet_2.predict(X_test_t, a_2)
+            assert_array_almost_equal(c0, c1, err_msg="alphas[{}]".format(k))
+
+            pred_1 = getattr(coxnet_1._baseline_models[k], fn)
+            pred_2 = getattr(coxnet_2._baseline_models[k], fn)
+
+            assert_array_almost_equal(pred_1.y, pred_2.y, decimal=3, err_msg="alphas[{}]".format(k))
+
+    @staticmethod
+    @pytest.mark.parametrize('fn', ["predict_survival_function", "predict_cumulative_hazard_function"])
+    def test_baseline_predict(breast_cancer, fn, normalize_options):
+        X, y = breast_cancer
+
+        X_test = X.iloc[:19]
+        X_train = X.iloc[19:]
+        y_train = y[19:]
+
+        coxnet_1 = CoxnetSurvivalAnalysis(
+            fit_baseline_model=True, alpha_min_ratio=0.001, n_alphas=23, normalize=normalize_options
+        )
+        coxnet_1.fit(X_train, y_train)
+
+        coxnet_2 = CoxnetSurvivalAnalysis()
+        coxnet_2.set_params(**coxnet_1.get_params())
+        Xm = X_train.mean()
+        X_train_t = X_train - Xm
+        X_test_t = X_test - Xm
+        coxnet_2.fit(X_train_t, y_train)
+
+        assert_array_almost_equal(coxnet_1.coef_, coxnet_2.coef_)
+        assert_array_almost_equal(coxnet_1.alphas_, coxnet_2.alphas_)
+
+        time_points = numpy.unique(y["t.tdm"])
+
+        for k, (a_1, a_2) in enumerate(zip(coxnet_1.alphas_, coxnet_2.alphas_)):
+            pred_1 = getattr(coxnet_1, fn)(X_test, alpha=a_1)
+            pred_2 = getattr(coxnet_2, fn)(X_test_t, alpha=a_2)
+
+            for i, (f1, f2) in enumerate(zip(pred_1, pred_2)):
+                assert_array_almost_equal(f1.a, f2.a, 5, err_msg="alphas[{}] [{}].a mismatch".format(k, i))
+                assert_array_almost_equal(f1.x, f2.x, err_msg="alphas[{}] [{}].a mismatch".format(k, i))
+                assert_array_almost_equal(f1.y, f2.y, err_msg="alphas[{}] [{}].a mismatch".format(k, i))
+
+                out_1 = f1(time_points)
+                out_2 = f2(time_points)
+                assert_array_almost_equal(out_1, out_2, 5, err_msg="alphas[{}] {}() mismatch".format(k, i))
+
+    @staticmethod
+    def test_predict_func_disabled(make_fit_example):
+        x, coxnet = make_fit_example(l1_ratio=0.9, n_alphas=11,
+                                     alpha_min_ratio=0.001,
+                                     fit_baseline_model=False)
         with pytest.raises(ValueError,
                            match='`fit` must be called with the fit_baseline_model option set to True.'):
             coxnet.predict_cumulative_hazard_function(x)
 
-    def test_predict_func_no_such_alpha(self):
-        x, coxnet = self._fit_example(l1_ratio=0.9, n_alphas=11,
-                                      alpha_min_ratio=0.001,
-                                      fit_baseline_model=True)
-        with pytest.raises(ValueError,
-                           match=r'alpha must be one value of alphas_: \[.+'):
-            for a in 1. + numpy.random.randn(100):
+    @staticmethod
+    def test_predict_func_no_such_alpha(make_fit_example):
+        x, coxnet = make_fit_example(l1_ratio=0.9, n_alphas=11,
+                                     alpha_min_ratio=0.001,
+                                     fit_baseline_model=True)
+
+        for a in 1. + numpy.random.randn(100):
+            with pytest.raises(ValueError,
+                               match=r'alpha must be one value of alphas_: \[.+'):
                 coxnet.predict_cumulative_hazard_function(x, alpha=a)
 
-    def test_all_zero_coefs(self):
+    @staticmethod
+    def test_all_zero_coefs(make_fit_example):
         alphas = numpy.array([256, 128, 96, 64, 48])
 
         with pytest.warns(UserWarning, match="all coefficients are zero, consider decreasing alpha."):
-            _, coxnet = self._fit_example(l1_ratio=0.9, alphas=alphas,
-                                          alpha_min_ratio=0.001)
+            _, coxnet = make_fit_example(l1_ratio=0.9, alphas=alphas, alpha_min_ratio=0.001)
         assert_array_almost_equal(coxnet.coef_, numpy.zeros((30, 5), dtype=float))
 
-    def test_max_iter(self):
+    @staticmethod
+    def test_max_iter(make_fit_example):
         with pytest.warns(ConvergenceWarning,
                           match=r'Optimization terminated early, you might want'
                                 r' to increase the number of iterations \(max_iter=100\).'):
-            self._fit_example(l1_ratio=0.9, max_iter=100)
+            make_fit_example(alpha_min_ratio=0.0001, l1_ratio=0.9, max_iter=100)
 
+    @staticmethod
     @pytest.mark.parametrize('val', [0, -1, -1e-6, 1 + 1e-6, 1512, numpy.nan, numpy.infty])
-    def test_invalid_l1_ratio(self, val):
+    def test_invalid_l1_ratio(make_fit_example, val):
         with pytest.raises(ValueError,
                            match=r"l1_ratio must be in interval \]0;1\]"):
-            self._fit_example(l1_ratio=val)
+            make_fit_example(alpha_min_ratio=0.0001, l1_ratio=val)
 
-    def test_invalid_tol(self, invalid_positive_int):
+    @staticmethod
+    def test_invalid_tol(make_fit_example, invalid_positive_int):
         with pytest.raises(ValueError,
                            match="tolerance must be positive"):
-            self._fit_example(tol=invalid_positive_int)
+            make_fit_example(alpha_min_ratio=0.0001, tol=invalid_positive_int)
 
-    def test_invalid_max_iter(self, invalid_positive_int):
+    @staticmethod
+    def test_invalid_max_iter(make_fit_example, invalid_positive_int):
         with pytest.raises(ValueError,
                            match="max_iter must be a positive integer"):
-            self._fit_example(max_iter=invalid_positive_int)
+            make_fit_example(alpha_min_ratio=0.0001, max_iter=invalid_positive_int)
 
-    def test_invalid_n_alphas(self, invalid_positive_int):
+    @staticmethod
+    def test_invalid_n_alphas(make_fit_example, invalid_positive_int):
         with pytest.raises(ValueError,
                            match="n_alphas must be a positive integer"):
-            self._fit_example(n_alphas=invalid_positive_int)
+            make_fit_example(alpha_min_ratio=0.0001, n_alphas=invalid_positive_int)
 
+    @staticmethod
     @pytest.mark.parametrize('length', [0, 1, 29, 31])
-    def test_invalid_penalty_factor_length(self, length):
+    def test_invalid_penalty_factor_length(make_fit_example, length):
         msg = r"penalty_factor must be array of length " \
               r"n_features \(30\), but got {:d}".format(length)
 
         array = numpy.empty(length, dtype=float)
         with pytest.raises(ValueError, match=msg):
-            self._fit_example(penalty_factor=array)
-
-    def test_negative_penalty_factor_value(self, negative_float_array):
-        with pytest.raises(ValueError,
-                           match="Negative values in data passed to penalty_factor"):
-            self._fit_example(penalty_factor=negative_float_array)
-
-    def test_invalid_penalty_factor_value(self, infinite_float_array):
-        with pytest.raises(ValueError,
-                           match="Input contains NaN, infinity or a value too large"):
-            self._fit_example(penalty_factor=infinite_float_array)
-
-    def test_negative_alphas(self, negative_float_array):
-        with pytest.raises(ValueError,
-                           match="Negative values in data passed to alphas"):
-            self._fit_example(alphas=negative_float_array)
-
-    def test_invalid_alphas(self, infinite_float_array):
-        with pytest.raises(ValueError,
-                           match="Input contains NaN, infinity or a value too large"):
-            self._fit_example(alphas=infinite_float_array)
+            make_fit_example(alpha_min_ratio=0.0001, penalty_factor=array)
 
     @staticmethod
-    def test_alpha_too_small():
-        X, y = load_breast_cancer()
-        Xt = OneHotEncoder().fit_transform(X)
+    def test_negative_penalty_factor_value(make_fit_example, negative_float_array):
+        with pytest.raises(ValueError,
+                           match="Negative values in data passed to penalty_factor"):
+            make_fit_example(alpha_min_ratio=0.0001, penalty_factor=negative_float_array)
+
+    @staticmethod
+    def test_invalid_penalty_factor_value(make_fit_example, infinite_float_array):
+        with pytest.raises(ValueError,
+                           match="Input contains NaN, infinity or a value too large"):
+            make_fit_example(alpha_min_ratio=0.0001, penalty_factor=infinite_float_array)
+
+    @staticmethod
+    def test_negative_alphas(make_fit_example, negative_float_array):
+        with pytest.raises(ValueError,
+                           match="Negative values in data passed to alphas"):
+            make_fit_example(alpha_min_ratio=0.0001, alphas=negative_float_array)
+
+    @staticmethod
+    def test_invalid_alphas(make_fit_example, infinite_float_array):
+        with pytest.raises(ValueError,
+                           match="Input contains NaN, infinity or a value too large"):
+            make_fit_example(alpha_min_ratio=0.0001, alphas=infinite_float_array)
+
+    @staticmethod
+    def test_invalid_alpha_min_ratio_string(make_fit_example):
+        with pytest.raises(ValueError,
+                           match="Invalid value for alpha_min_ratio"):
+            make_fit_example(alpha_min_ratio="max")
+
+    @staticmethod
+    @pytest.mark.parametrize("value", [0.0, -1e-12, -1, -numpy.infty, numpy.nan])
+    def test_invalid_alpha_min_ratio_float(make_fit_example, value):
+        with pytest.raises(ValueError,
+                           match="alpha_min_ratio must be positive"):
+            make_fit_example(alpha_min_ratio=value)
+
+    @staticmethod
+    def test_alpha_too_small(breast_cancer):
+        Xt, y = breast_cancer
+
         index = numpy.array([
             0, 1, 2, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 31, 33,
             34, 36, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 51, 52, 53, 54, 56, 57, 58, 60, 61, 62, 63, 64, 65, 66,
@@ -533,7 +687,7 @@ class TestCoxnetSurvivalAnalysis(object):
             184, 185, 186, 187, 188, 190, 191, 192, 193, 194, 195, 196, 197
         ])
 
-        nn = CoxnetSurvivalAnalysis(alphas=[0.007295025406624247], l1_ratio=1.0)
+        nn = CoxnetSurvivalAnalysis(alphas=[0.007295025406624247], alpha_min_ratio=0.0001, l1_ratio=1.0)
         Xf, yf = Xt.iloc[index], y[index]
 
         with pytest.raises(ArithmeticError,
@@ -541,12 +695,13 @@ class TestCoxnetSurvivalAnalysis(object):
             nn.fit(Xf, yf)
 
     @staticmethod
-    def test_breast_example():
-        x, y = load_breast_cancer()
-        x = column.encode_categorical(x)
+    def test_breast_example(breast_cancer):
+        x, y = breast_cancer
 
         coxnet = CoxnetSurvivalAnalysis(l1_ratio=1.0)
         coxnet.fit(x.values, y)
+
+        assert coxnet.alpha_min_ratio_ == 0.0001
 
         expected_alphas = numpy.array([
             0.207764947265866, 0.189307681974955, 0.172490109262135, 0.157166563357949, 0.143204319038428,
@@ -601,6 +756,75 @@ class TestCoxnetSurvivalAnalysis(object):
         assert_columns_almost_equal(coef, expected_coef, 5)
 
     @staticmethod
+    def test_breast_p_greater_n(breast_cancer):
+        x, y = breast_cancer
+        x -= x.mean()
+        order = (-y['t.tdm']).argsort()
+        x = x.iloc[order[:80]]
+        y = y[order[:80]]
+
+        coxnet = CoxnetSurvivalAnalysis(l1_ratio=1.0)
+        coxnet.fit(x.values, y)
+
+        assert coxnet.alpha_min_ratio_ == 0.01
+
+        expected_alphas = numpy.array([
+            0.0948288922619048, 0.0905187727555525, 0.086404554832736, 0.0824773344641409, 0.0787286123223276,
+            0.0751502753874057, 0.0717345793887599, 0.0684741320448266, 0.0653618770646479, 0.0623910788765801,
+            0.0595553080511063, 0.0568484273862036, 0.054264578625153, 0.0517981697780446, 0.0494438630195401,
+            0.0471965631367011, 0.0450514065018809, 0.0430037505468153, 0.0410491637151331, 0.0391834158715392,
+            0.0374024691469166, 0.0357024691995311, 0.0340797368734291, 0.0325307602359731, 0.0310521869772843,
+            0.0296408171551414, 0.0282935962696359, 0.0270076086525939, 0.0257800711574603, 0.024608327135986,
+            0.023489840688685, 0.0224221911766166, 0.021403067982616, 0.0204302655106344, 0.0195016784123676,
+            0.0186152970308409, 0.0177692030510908, 0.0169615653485295, 0.0161906360260076, 0.0154547466309991,
+            0.0147523045447198, 0.0140817895353677, 0.013441750468022, 0.0128308021640839, 0.0122476224034596,
+            0.0116909490629993, 0.0111595773849981, 0.0106523573698482, 0.0101681912871989, 0.00970603130023803,
+            0.00926487719795367, 0.00884377423046809, 0.00844181104275901, 0.00805811770229645, 0.00769186381632648,
+            0.00734225673472744, 0.00700853983454904, 0.00668999088252177, 0.0063859204719929, 0.00609567053090603,
+            0.00581861289759537, 0.00555414796131231, 0.00530170336454213, 0.00506073276430255, 0.00483071464974297,
+            0.00461115121348587, 0.00440156727426728, 0.00420150924854507, 0.00401054416884912, 0.00382825874674904,
+            0.00365425847841146, 0.00348816679081109, 0.00332962422674778, 0.00317828766690595, 0.00303382958727242,
+            0.00289593735030589, 0.00276431252832385, 0.00263867025764251, 0.00251873862207214, 0.00240425806443351,
+            0.00229498082482178, 0.00219067040440213, 0.00209110105357681, 0.00199605728341568, 0.00190533339929305,
+            0.00181873305572143, 0.00173606883141875, 0.00165716182368948, 0.00158184126124171, 0.00150994413460228,
+            0.00144131484333019, 0.00137580485926463, 0.0013132724050789, 0.00125358214744464, 0.00119660490414211,
+            0.00114221736448283, 0.00109030182243944, 0.00104074592190515, 0.000993442413531659, 0.000948288922619052
+        ])
+
+        assert_array_almost_equal(expected_alphas, coxnet.alphas_)
+
+        expected_deviance_ratio = numpy.array([
+            0, 0.0462280671677718, 0.0886824292023055, 0.127809395879191, 0.167202029735547, 0.21150983511365,
+            0.25202048418497, 0.288977870766515, 0.322894526112143, 0.354184937130736, 0.383227342294078,
+            0.41020873570105, 0.435399917854983, 0.458992629893996, 0.481148794953564, 0.502007028421266,
+            0.521687007555194, 0.540326070242061, 0.557951417089716, 0.574673796628669, 0.590565196035048,
+            0.605720094024342, 0.620136650121787, 0.633893317242588, 0.647036975167954, 0.659641706497287,
+            0.671685014319545, 0.683229207693947, 0.694339713809272, 0.704984204297195, 0.715217033589695,
+            0.725098421441951, 0.734586489938626, 0.743749179587877, 0.756951344840625, 0.769374262091115,
+            0.781088604662055, 0.792115179997869, 0.802515292743199, 0.812333737139071, 0.821610165074286,
+            0.830380590378993, 0.838677922696392, 0.846532328413876, 0.853971528730985, 0.861021056012275,
+            0.867704476556531, 0.874043585172118, 0.880058575813189, 0.885768191772895, 0.891189858340372,
+            0.89633980035321, 0.901233146689909, 0.905884008467536, 0.910305596711285, 0.914510324284785,
+            0.918509724810968, 0.922314672256325, 0.925935372520073, 0.929371697720327, 0.932660004492162,
+            0.935775430981201, 0.938748309596168, 0.941580730549356, 0.944278997138997, 0.946849613332775,
+            0.949298889398519, 0.951632778072432, 0.953856965822007, 0.955976832090688, 0.957995949491087,
+            0.95992200533877, 0.961758223454499, 0.963507897227564, 0.96517707093905, 0.966769081504476,
+            0.968287420437941, 0.969735526668442, 0.971107538859051, 0.972432535259795, 0.973681544039006,
+            0.97487938238315, 0.976022813266596, 0.977113969626666, 0.978155133509104, 0.979151911611324,
+            0.980095030270948, 0.981003596012864, 0.98186553640233, 0.982688707756662, 0.983474488924476,
+            0.984224494959766, 0.984940315524502, 0.985612152584937, 0.98627427317818, 0.986896672934578,
+            0.987488984924729, 0.988056860176794, 0.988587033996462, 0.989113296247043
+        ])
+
+        assert_array_almost_equal(expected_deviance_ratio, coxnet.deviance_ratio_)
+
+        coef = pandas.DataFrame(coxnet.coef_, index=x.columns, dtype=float)
+        expected_coef = pandas.read_csv(BREAST_CANCER_HIGH_COEFFICIENTS_FILE, index_col=0)
+        expected_coef.columns = numpy.arange(expected_coef.shape[1])
+
+        assert_columns_almost_equal(coef, expected_coef, 5)
+
+    @staticmethod
     def test_simple():
         y = Surv.from_arrays([True, False, False, True, False], [7., 8., 11., 11., 23.],
                              name_event="D", name_time="Y")
@@ -610,7 +834,7 @@ class TestCoxnetSurvivalAnalysis(object):
                               "F3": [120, 98, 78, 91, 79],
                               "F4": [0.123, 0.541, 0.784, 0.846, 0.331]})
 
-        coxnet = CoxnetSurvivalAnalysis(l1_ratio=1.0)
+        coxnet = CoxnetSurvivalAnalysis(alpha_min_ratio=0.0001, l1_ratio=1.0)
         coxnet.fit(x.values, y)
 
         expected_alphas = numpy.array(
@@ -633,3 +857,24 @@ class TestCoxnetSurvivalAnalysis(object):
         expected_coef = pandas.read_csv(SIMPLE_COEF_FILE, header=None, skiprows=1)
 
         assert_columns_almost_equal(coef, expected_coef)
+
+
+@pytest.mark.parametrize("func", ["predict_survival_function", "predict_cumulative_hazard_function"])
+def test_pipeline_predict(breast_cancer, func):
+    X_str, _ = load_breast_cancer()
+    X_num, y = breast_cancer
+
+    est = CoxnetSurvivalAnalysis(alpha_min_ratio=0.0001, l1_ratio=1.0, fit_baseline_model=True)
+    est.fit(X_num[10:], y[10:])
+
+    pipe = make_pipeline(OneHotEncoder(), CoxnetSurvivalAnalysis(alpha_min_ratio=0.0001,
+                                                                 l1_ratio=1.0,
+                                                                 fit_baseline_model=True))
+    pipe.fit(X_str[10:], y[10:])
+
+    tree_pred = getattr(est, func)(X_num[:10])
+    pipe_pred = getattr(pipe, func)(X_str[:10])
+
+    for s1, s2 in zip(tree_pred, pipe_pred):
+        assert_array_almost_equal(s1.x, s2.x)
+        assert_array_almost_equal(s1.y, s2.y)

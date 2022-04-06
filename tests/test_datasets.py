@@ -3,9 +3,9 @@ import os
 import tempfile
 
 import numpy
-from numpy.testing import assert_array_equal, assert_array_almost_equal
+from numpy.testing import assert_array_almost_equal, assert_array_equal
 import pandas
-import pandas.util.testing as tm
+import pandas.testing as tm
 import pytest
 
 import sksurv.datasets as sdata
@@ -37,17 +37,17 @@ ASampleFive,3.14,no,large
 """
 
 
-@pytest.fixture
+@pytest.fixture()
 def arff_1():
     return StringIO(ARFF_CATEGORICAL_INDEX_1)
 
 
-@pytest.fixture
+@pytest.fixture()
 def arff_2():
     return StringIO(ARFF_CATEGORICAL_INDEX_2)
 
 
-@pytest.fixture
+@pytest.fixture()
 def temp_file_pair():
     tmp_train = tempfile.NamedTemporaryFile("w", suffix=".arff", delete=False)
     tmp_test = tempfile.NamedTemporaryFile("w", suffix=".arff", delete=False)
@@ -80,7 +80,7 @@ def _make_classification_data(n_samples, n_features, n_classes, seed):
     return x, y
 
 
-class TestGetXy(object):
+class TestGetXy:
     @staticmethod
     def test_get_x_y_survival():
         x, event, time = _make_survival_data(100, 10, 0)
@@ -186,7 +186,7 @@ def assert_structured_array_dtype(arr, event, time, num_events):
     assert arr[event].sum() == num_events
 
 
-class TestLoadDatasets(object):
+class TestLoadDatasets:
 
     @staticmethod
     def test_load_whas500():
@@ -254,7 +254,7 @@ def _make_and_write_data(fp, n_samples, n_features, with_index, with_labels, see
         arr = x
 
     if with_index:
-        index = numpy.arange(n_samples, dtype=numpy.float_)
+        index = numpy.arange(n_samples, dtype=float)
         numpy.random.RandomState(0).shuffle(index)
     else:
         index = None
@@ -285,7 +285,7 @@ def assert_y_equal(y_true, y_train):
     assert_array_almost_equal(y_train["time"], y_true["time"].values)
 
 
-class TestLoadArffFile(object):
+class TestLoadArffFile:
 
     @staticmethod
     def test_load_with_index(temp_file):
@@ -462,6 +462,7 @@ class TestLoadArffFile(object):
                                                standardize_numeric=False, to_numeric=False)
 
     @staticmethod
+    @pytest.mark.filterwarnings("ignore:Restricting columns to intersection")
     def test_load_train_and_test_columns_dont_intersect(temp_file_pair):
         tmp_train, tmp_test = temp_file_pair
         _make_and_write_data(tmp_train, 100, 19, True, True, 0, column_prefix="A")

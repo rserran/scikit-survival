@@ -2,14 +2,14 @@ from collections import OrderedDict
 
 import numpy
 from numpy.testing import assert_array_equal
-import pandas.util.testing as tm
 import pandas
+import pandas.testing as tm
 import pytest
 
-from sksurv.util import safe_concat, Surv
+from sksurv.util import Surv, safe_concat
 
 
-class TestUtil(object):
+class TestUtil:
     @staticmethod
     def test_concat_numeric():
         rnd = numpy.random.RandomState(14)
@@ -53,10 +53,10 @@ class TestUtil(object):
 
         expected_series = pandas.DataFrame.from_dict(OrderedDict([
             ("col_A", pandas.Series(pandas.Categorical.from_codes(
-                numpy.concatenate((a.col_A.cat.codes.values, b.col_A.cat.codes.values)),
+                numpy.r_[a.col_A.cat.codes.values, b.col_A.cat.codes.values],
                 ["C1", "C2", "C3"]
             ))),
-            ("col_B", numpy.concatenate((a.col_B.values, b.col_B.values)))
+            ("col_B", numpy.r_[a.col_B.values, b.col_B.values])
         ]))
         expected_series.index = pandas.Index(a.index.tolist() + b.index.tolist())
 
@@ -116,21 +116,21 @@ class TestUtil(object):
             safe_concat((numeric_df, cat_df), axis=1)
 
 
-@pytest.fixture
+@pytest.fixture()
 def surv_arrays():
     event = numpy.random.binomial(1, 0.5, size=100)
     time = numpy.exp(numpy.random.randn(100))
     return event, time
 
 
-@pytest.fixture
+@pytest.fixture()
 def surv_data_frame():
     df = pandas.DataFrame({'event': numpy.random.binomial(1, 0.5, size=100),
                            'time': numpy.exp(numpy.random.randn(100))})
     return df
 
 
-class TestSurv(object):
+class TestSurv:
 
     @staticmethod
     def test_from_list(surv_arrays):
@@ -347,7 +347,7 @@ class TestSurv(object):
         assert_array_equal(y, expected)
 
     @staticmethod
-    def test_from_dataframe_no_such_column(surv_data_frame, pandas_version_under_0p24):
+    def test_from_dataframe_no_such_column(surv_data_frame):
         data = surv_data_frame
         data['event'] = data['event'].astype(bool)
 
@@ -355,11 +355,7 @@ class TestSurv(object):
         expected['event'] = data['event']
         expected['time'] = data['time']
 
-        if pandas_version_under_0p24:
-            match = r'the label \[unknown\] is not in the \[columns\]'
-        else:
-            match = 'unknown'
-
+        match = 'unknown'
         with pytest.raises(KeyError,
                            match=match):
             Surv.from_dataframe('unknown', 'time', data)

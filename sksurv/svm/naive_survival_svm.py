@@ -13,12 +13,15 @@
 import itertools
 
 import numpy
+import pandas
 from scipy.special import comb
 from sklearn.svm import LinearSVC
 from sklearn.utils import check_random_state
+from sklearn.utils.validation import _get_feature_names
 
 from ..base import SurvivalAnalysisMixin
-from ..util import check_arrays_survival
+from ..exceptions import NoComparablePairException
+from ..util import check_array_survival
 
 
 class NaiveSurvivalSVM(SurvivalAnalysisMixin, LinearSVC):
@@ -78,6 +81,11 @@ class NaiveSurvivalSVM(SurvivalAnalysisMixin, LinearSVC):
     max_iter : int, default: 1000
         The maximum number of iterations to be run.
 
+    See also
+    --------
+    sksurv.svm.FastSurvivalSVM
+        Alternative implementation with reduced time complexity for training.
+
     References
     ----------
     .. [1] Van Belle, V., Pelckmans, K., Suykens, J. A., & Van Huffel, S.
@@ -101,8 +109,11 @@ class NaiveSurvivalSVM(SurvivalAnalysisMixin, LinearSVC):
                          fit_intercept=False)
         self.alpha = alpha
 
-    def _get_survival_pairs(self, X, y, random_state):
-        X, event, time = check_arrays_survival(X, y)
+    def _get_survival_pairs(self, X, y, random_state):  # pylint: disable=no-self-use
+        feature_names = _get_feature_names(X)
+
+        X = self._validate_data(X, ensure_min_samples=2)
+        event, time = check_array_survival(X, y)
 
         idx = numpy.arange(X.shape[0], dtype=int)
         random_state.shuffle(idx)
@@ -127,6 +138,9 @@ class NaiveSurvivalSVM(SurvivalAnalysisMixin, LinearSVC):
 
         x_pairs.resize((k, X.shape[1]), refcheck=False)
         y_pairs.resize(k, refcheck=False)
+
+        if feature_names is not None:
+            x_pairs = pandas.DataFrame(x_pairs, columns=feature_names)
         return x_pairs, y_pairs
 
     def fit(self, X, y, sample_weight=None):
@@ -154,6 +168,8 @@ class NaiveSurvivalSVM(SurvivalAnalysisMixin, LinearSVC):
         random_state = check_random_state(self.random_state)
 
         x_pairs, y_pairs = self._get_survival_pairs(X, y, random_state)
+        if x_pairs.shape[0] == 0:
+            raise NoComparablePairException("Data has no comparable pairs, cannot fit model.")
 
         self.C = self.alpha
         return super().fit(x_pairs, y_pairs, sample_weight=sample_weight)

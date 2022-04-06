@@ -1,9 +1,11 @@
 from collections import OrderedDict
+
 import numpy
 import pandas
 from scipy import stats
+from sklearn.utils.validation import check_array
 
-from .util import check_arrays_survival
+from .util import check_array_survival
 
 __all__ = ["compare_survival"]
 
@@ -54,8 +56,8 @@ def compare_survival(y, group_indicator, return_stats=False):
            Communications In Statistics 10 (1981): 763-794.
     """
 
-    group_indicator, event, time = check_arrays_survival(
-        group_indicator, y, dtype="O", ensure_2d=False)
+    event, time = check_array_survival(group_indicator, y)
+    group_indicator = check_array(group_indicator, dtype="O", ensure_2d=False)
 
     n_samples = time.shape[0]
     groups, group_counts = numpy.unique(group_indicator, return_counts=True)
@@ -70,10 +72,13 @@ def compare_survival(y, group_indicator, return_stats=False):
     event = event[o]
     time = time[o]
 
-    at_risk = numpy.zeros(n_groups, dtype=numpy.int_)
-    observed = numpy.zeros(n_groups, dtype=numpy.int_)
-    expected = numpy.zeros(n_groups, dtype=numpy.float_)
-    covar = numpy.zeros((n_groups, n_groups), dtype=numpy.float_)
+    at_risk = numpy.zeros(n_groups, dtype=int)
+    observed = numpy.zeros(n_groups, dtype=int)
+    expected = numpy.zeros(n_groups, dtype=float)
+    covar = numpy.zeros((n_groups, n_groups), dtype=float)
+
+    covar_indices = numpy.diag_indices(n_groups)
+
     k = 0
     while k < n_samples:
         ti = time[k]
@@ -91,11 +96,9 @@ def compare_survival(y, group_indicator, return_stats=False):
             expected += at_risk * (total_events / total_at_risk)
             if total_at_risk > 1:
                 multiplier = total_events * (total_at_risk - total_events) / (total_at_risk * (total_at_risk - 1))
-                for g1 in range(n_groups):
-                    temp = at_risk[g1] * multiplier
-                    covar[g1, g1] += temp
-                    for g2 in range(n_groups):
-                        covar[g1, g2] -= temp * at_risk[g2] / total_at_risk
+                temp = at_risk * multiplier
+                covar[covar_indices] += temp
+                covar -= numpy.outer(temp, at_risk) / total_at_risk
 
     df = n_groups - 1
     zz = observed[:df] - expected[:df]

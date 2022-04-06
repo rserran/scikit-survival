@@ -10,19 +10,19 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+import numbers
 import warnings
 
 import numpy
 from scipy.linalg import solve
 from sklearn.base import BaseEstimator
 from sklearn.exceptions import ConvergenceWarning
-from sklearn.utils.extmath import squared_norm
-from sklearn.utils.validation import check_is_fitted
+from sklearn.utils.validation import check_array, check_is_fitted
 
 from ..base import SurvivalAnalysisMixin
 from ..functions import StepFunction
 from ..nonparametric import _compute_counts
-from ..util import check_arrays_survival
+from ..util import check_array_survival
 
 __all__ = ['CoxPHSurvivalAnalysis']
 
@@ -60,9 +60,9 @@ class BreslowEstimator:
         risk_score = numpy.exp(linear_predictor)
         order = numpy.argsort(time, kind="mergesort")
         risk_score = risk_score[order]
-        uniq_times, n_events, n_at_risk = _compute_counts(event, time, order)
+        uniq_times, n_events, n_at_risk, _ = _compute_counts(event, time, order)
 
-        divisor = numpy.empty(n_at_risk.shape, dtype=numpy.float_)
+        divisor = numpy.empty(n_at_risk.shape, dtype=float)
         value = numpy.sum(risk_score)
         divisor[0] = value
         k = 0
@@ -95,7 +95,7 @@ class BreslowEstimator:
         """
         risk_score = numpy.exp(linear_predictor)
         n_samples = risk_score.shape[0]
-        funcs = numpy.empty(n_samples, dtype=numpy.object_)
+        funcs = numpy.empty(n_samples, dtype=object)
         for i in range(n_samples):
             funcs[i] = StepFunction(x=self.cum_baseline_hazard_.x,
                                     y=self.cum_baseline_hazard_.y,
@@ -117,7 +117,7 @@ class BreslowEstimator:
         """
         risk_score = numpy.exp(linear_predictor)
         n_samples = risk_score.shape[0]
-        funcs = numpy.empty(n_samples, dtype=numpy.object_)
+        funcs = numpy.empty(n_samples, dtype=object)
         for i in range(n_samples):
             funcs[i] = StepFunction(x=self.baseline_survival_.x,
                                     y=numpy.power(self.baseline_survival_.y, risk_score[i]))
@@ -134,6 +134,7 @@ class CoxPHOptimizer:
         self.event = event[o]
         self.time = time[o]
         self.alpha = alpha
+        self.no_alpha = numpy.all(self.alpha < numpy.finfo(self.alpha.dtype).eps)
         if ties not in ("breslow", "efron"):
             raise ValueError("ties must be one of 'breslow', 'efron'")
         self._is_breslow = ties == "breslow"
@@ -184,7 +185,7 @@ class CoxPHOptimizer:
                         loss -= (numerator - numpy.log(risk_set)) / n_samples
 
         # add regularization term to log-likelihood
-        return loss + self.alpha * squared_norm(w) / (2. * n_samples)
+        return loss + numpy.sum(self.alpha * numpy.square(w)) / (2. * n_samples)
 
     def update(self, w, offset=0):
         """Compute gradient and Hessian matrix with respect to `w`."""
@@ -259,7 +260,7 @@ class CoxPHOptimizer:
 
                         hessian += (a - b) * inv_n_samples
 
-        if self.alpha > 0:
+        if not self.no_alpha:
             gradient += self.alpha * inv_n_samples * w
 
             diag_idx = numpy.diag_indices(n_features)
@@ -307,8 +308,12 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
 
     Parameters
     ----------
-    alpha : float, optional, default: 0
+    alpha : float, ndarray of shape (n_features,), optional, default: 0
         Regularization parameter for ridge regression penalty.
+        If a single float, the same penalty is used for all features.
+        If an array, there must be one penalty for each feature.
+        If you want to include a subset of features without penalization,
+        set the corresponding entries to 0.
 
     ties : "breslow" | "efron", optional, default: "breslow"
         The method to handle tied event times. If there are
@@ -336,6 +341,18 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
 
     baseline_survival_ : :class:`sksurv.functions.StepFunction`
         Estimated baseline survival function.
+
+    n_features_in_ : int
+        Number of features seen during ``fit``.
+
+    feature_names_in_ : ndarray of shape (`n_features_in_`,)
+        Names of features seen during ``fit``. Defined only when `X`
+        has feature names that are all strings.
+
+    See also
+    --------
+    sksurv.linear_model.CoxnetSurvivalAnalysis
+        Cox proportional hazards model with l1 (LASSO) and l2 (ridge) penalty.
 
     References
     ----------
@@ -381,12 +398,24 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
         -------
         self
         """
-        X, event, time = check_arrays_survival(X, y)
+        X = self._validate_data(X, ensure_min_samples=2, dtype=numpy.float64)
+        event, time = check_array_survival(X, y)
 
-        if self.alpha < 0:
+        if isinstance(self.alpha, (numbers.Real, numbers.Integral)):
+            alphas = numpy.empty(X.shape[1], dtype=float)
+            alphas[:] = self.alpha
+        else:
+            alphas = self.alpha
+
+        alphas = check_array(alphas, ensure_2d=False, ensure_min_samples=0)
+        if numpy.any(alphas < 0):
             raise ValueError("alpha must be positive, but was %r" % self.alpha)
+        if alphas.shape[0] != X.shape[1]:
+            raise ValueError(
+                "Length alphas ({}) must match number of features ({}).".format(
+                    alphas.shape[0], X.shape[1]))
 
-        optimizer = CoxPHOptimizer(X, event, time, self.alpha, self.ties)
+        optimizer = CoxPHOptimizer(X, event, time, alphas, self.ties)
 
         verbose_reporter = VerboseReporter(self.verbose)
         w = numpy.zeros(X.shape[1])
@@ -448,7 +477,7 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
         """
         check_is_fitted(self, "coef_")
 
-        X = numpy.atleast_2d(X)
+        X = self._validate_data(X, reset=False)
 
         return numpy.dot(X, self.coef_)
 
@@ -472,8 +501,35 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
 
         Returns
         -------
-        cum_hazard : ndarray, shape = (n_samples,)
+        cum_hazard : ndarray of :class:`sksurv.functions.StepFunction`, shape = (n_samples,)
             Predicted cumulative hazard functions.
+
+        Examples
+        --------
+        >>> import matplotlib.pyplot as plt
+        >>> from sksurv.datasets import load_whas500
+        >>> from sksurv.linear_model import CoxPHSurvivalAnalysis
+
+        Load the data.
+
+        >>> X, y = load_whas500()
+        >>> X = X.astype(float)
+
+        Fit the model.
+
+        >>> estimator = CoxPHSurvivalAnalysis().fit(X, y)
+
+        Estimate the cumulative hazard function for the first 10 samples.
+
+        >>> chf_funcs = estimator.predict_cumulative_hazard_function(X.iloc[:10])
+
+        Plot the estimated cumulative hazard functions.
+
+        >>> for fn in chf_funcs:
+        ...     plt.step(fn.x, fn(fn.x), where="post")
+        ...
+        >>> plt.ylim(0, 1)
+        >>> plt.show()
         """
         return self._baseline_model.get_cumulative_hazard_function(self.predict(X))
 
@@ -497,7 +553,34 @@ class CoxPHSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
 
         Returns
         -------
-        survival : ndarray, shape = (n_samples,)
+        survival : ndarray of :class:`sksurv.functions.StepFunction`, shape = (n_samples,)
             Predicted survival functions.
+
+        Examples
+        --------
+        >>> import matplotlib.pyplot as plt
+        >>> from sksurv.datasets import load_whas500
+        >>> from sksurv.linear_model import CoxPHSurvivalAnalysis
+
+        Load the data.
+
+        >>> X, y = load_whas500()
+        >>> X = X.astype(float)
+
+        Fit the model.
+
+        >>> estimator = CoxPHSurvivalAnalysis().fit(X, y)
+
+        Estimate the survival function for the first 10 samples.
+
+        >>> surv_funcs = estimator.predict_survival_function(X.iloc[:10])
+
+        Plot the estimated survival functions.
+
+        >>> for fn in surv_funcs:
+        ...     plt.step(fn.x, fn(fn.x), where="post")
+        ...
+        >>> plt.ylim(0, 1)
+        >>> plt.show()
         """
         return self._baseline_model.get_survival_function(self.predict(X))

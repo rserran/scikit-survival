@@ -10,14 +10,9 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-import sklearn
-from pkg_resources import parse_version
-
-_sklearn_version_under_0p21 = \
-    parse_version(sklearn.__version__) < parse_version('0.21.0')
 
 
-class SurvivalAnalysisMixin(object):
+class SurvivalAnalysisMixin:
 
     def score(self, X, y):
         """Returns the concordance index of the prediction.
@@ -40,5 +35,9 @@ class SurvivalAnalysisMixin(object):
         from .metrics import concordance_index_censored
         name_event, name_time = y.dtype.names
 
-        result = concordance_index_censored(y[name_event], y[name_time], self.predict(X))
+        risk_score = self.predict(X)
+        if not getattr(self, "_predict_risk_score", True):
+            risk_score *= -1  # convert prediction on time scale to risk scale
+
+        result = concordance_index_censored(y[name_event], y[name_time], risk_score)
         return result[0]

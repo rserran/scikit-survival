@@ -1,0 +1,8 @@
+channels:
+  - defaults
+  - sebp
+dependencies:
+  - pip
+  - scikit-survival
+  - matplotlib=3.5.1
+  - seaborn==0.11.2

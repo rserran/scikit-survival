@@ -1,10 +1,10 @@
-from pkg_resources import resource_filename
 import warnings
 
 import numpy
 import pandas
+from pkg_resources import resource_filename
 
-from ..column import standardize, categorical_to_numeric
+from ..column import categorical_to_numeric, standardize
 from ..io import loadarff
 from ..util import safe_concat
 
@@ -23,7 +23,7 @@ def _get_x_y_survival(dataset, col_event, col_time, val_outcome):
         y = None
         x_frame = dataset
     else:
-        y = numpy.empty(dtype=[(col_event, numpy.bool), (col_time, numpy.float64)],
+        y = numpy.empty(dtype=[(col_event, bool), (col_time, numpy.float64)],
                         shape=dataset.shape[0])
         y[col_event] = (dataset[col_event] == val_outcome).values
         y[col_time] = dataset[col_time].values

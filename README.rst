@@ -1,44 +1,20 @@
+|License| |Docs| |DOI|
+
+|build-linux| |build-macos| |build-windows| |Codecov| |Codacy|
+
 ***************
 scikit-survival
 ***************
 
-.. image:: https://img.shields.io/badge/license-GPLv3-blue.svg
-  :target: COPYING
-  :alt: License
-
-.. image:: https://travis-ci.org/sebp/scikit-survival.svg?branch=master
-  :target: https://travis-ci.org/sebp/scikit-survival
-  :alt: Travis CI Build Status
-
-.. image:: https://ci.appveyor.com/api/projects/status/github/sebp/scikit-survival?branch=master&svg=true
-   :target: https://ci.appveyor.com/project/sebp/scikit-survival
-   :alt: AppVeyor Build Status
-
-.. image:: https://codecov.io/gh/sebp/scikit-survival/branch/master/graph/badge.svg
-  :target: https://codecov.io/gh/sebp/scikit-survival
-  :alt: codecov
-
-.. image:: https://api.codacy.com/project/badge/Grade/17242004cdf6422c9a1052bf1ec63104
-   :target: https://www.codacy.com/app/sebp/scikit-survival?utm_source=github.com&utm_medium=referral&utm_content=sebp/scikit-survival&utm_campaign=badger
-   :alt: Codacy Badge
-
-.. image:: https://readthedocs.org/projects/scikit-survival/badge/?version=latest
-  :target: https://scikit-survival.readthedocs.io/en/latest/
-  :alt: readthedocs.org
-
-.. image:: https://zenodo.org/badge/77409504.svg
-   :target: https://zenodo.org/badge/latestdoi/77409504
-   :alt: Digital Object Identifier (DOI)
-
 scikit-survival is a Python module for `survival analysis`_
-built on top of `scikit-learn <http://scikit-learn.org/>`_. It allows doing survival analysis
+built on top of `scikit-learn <https://scikit-learn.org/>`_. It allows doing survival analysis
 while utilizing the power of scikit-learn, e.g., for pre-processing or doing cross-validation.
 
 =======================
 About Survival Analysis
 =======================
 
-The objective in `survival analysis`_ (also referred to as reliability analysis in engineering)
+The objective in `survival analysis`_ (also referred to as time-to-event or reliability analysis)
 is to establish a connection between covariates and the time of an event.
 What makes survival analysis differ from traditional machine learning is the fact that
 parts of the training data can only be partially observed – they are *censored*.
@@ -56,13 +32,14 @@ this unique characteristic of such a dataset into account.
 Requirements
 ============
 
-- Python 3.5 or later
-- cvxpy
-- cvxopt
+- Python 3.7 or later
+- ecos
+- joblib
 - numexpr
-- numpy 1.12 or later
-- pandas 0.21 or later
-- scikit-learn 0.20 or 0.21
+- numpy 1.16 or later
+- osqp
+- pandas 0.25 or later
+- scikit-learn 1.0
 - scipy 1.0 or later
 - C/C++ compiler
 
@@ -70,86 +47,103 @@ Requirements
 Installation
 ============
 
-The easiest way to get started is to install `Anaconda <https://www.anaconda.com/distribution/>`_
-and setup an environment::
+The easiest way to install scikit-survival is to use
+`Anaconda <https://www.anaconda.com/distribution/>`_ by running::
 
   conda install -c sebp scikit-survival
 
-----------------------
-Installing from source
-----------------------
-
-First, create a new environment, named ``sksurv``::
-
-  python ci/list-requirements.py requirements/dev.txt > /tmp/requirements.txt
-  conda create -n sksurv -c sebp python=3 --file /tmp/requirements.txt
-
-
-To work in this environment, ``activate`` it as follows::
-
-  source activate sksurv
-
-If you are on Windows, run the above command without the ``source`` in the beginning.
-
-Once you set up your build environment, install submodules into your local repository::
-
-  git submodule update --init
-
-Then compile the C/C++ extensions and install the package by running::
-
-  python setup.py install
-
-Alternatively, if you want to use the package without installing it,
-you can compile the extensions in place by running::
-
-  python setup.py build_ext --inplace
-
-To check everything is setup correctly run the test suite by executing::
-
-  py.test tests/
+Alternatively, you can install scikit-survival from source
+following `this guide <https://scikit-survival.readthedocs.io/en/stable/install.html#from-source>`_.
 
 ========
 Examples
 ========
 
-The following examples are available as `Jupyter notebook <https://jupyter.org/>`_:
+The `user guide <https://scikit-survival.readthedocs.io/en/stable/user_guide/index.html>`_ provides
+in-depth information on the key concepts of scikit-survival, an overview of available survival models,
+and hands-on examples in the form of `Jupyter notebooks <https://jupyter.org/>`_.
 
-* `Introduction to Survival Analysis with scikit-survival <https://nbviewer.jupyter.org/github/sebp/scikit-survival/blob/master/examples/00-introduction.ipynb>`_
-* `Pitfalls when Evaluating Survival Models <https://nbviewer.jupyter.org/github/sebp/scikit-survival/blob/master/examples/evaluating-survival-models.ipynb>`_
-* `Introduction to Kernel Survival Support Vector Machines <https://nbviewer.jupyter.org/github/sebp/scikit-survival/blob/master/examples/survival-svm.ipynb>`_
+================
+Help and Support
+================
 
-=============
-Documentation
-=============
+**Documentation**
 
-The source code is thoroughly documented and a HTML version of the API documentation
-is available at https://scikit-survival.readthedocs.io/en/latest/.
+- HTML documentation for the latest release: https://scikit-survival.readthedocs.io/en/stable/
+- HTML documentation for the development version (master branch): https://scikit-survival.readthedocs.io/en/latest/
+- For a list of notable changes, see the `release notes <https://scikit-survival.readthedocs.io/en/stable/release_notes.html>`_.
 
-You can generate the documentation yourself using `Sphinx <http://sphinx-doc.org/>`_ 1.4 or later::
+**Bug reports**
 
-  cd doc
-  make html
-  xdg-open _build/html/index.html
+- If you encountered a problem, please submit a
+  `bug report <https://github.com/sebp/scikit-survival/issues/new?template=bug_report.md>`_.
+
+**Questions**
+
+- If you have a question on how to use scikit-survival, please use `GitHub Discussions <https://github.com/sebp/scikit-survival/discussions>`_.
+- For general theoretical or methodological questions on survival analysis, please use
+  `Cross Validated <https://stats.stackexchange.com/questions/tagged/survival>`_.
+
+============
+Contributing
+============
+
+New contributors are always welcome. Please have a look at the
+`contributing guidelines <https://scikit-survival.readthedocs.io/en/latest/contributing.html>`_
+on how to get started and to make sure your code complies with our guidelines.
 
 ==========
 References
 ==========
 
-Please cite the following papers if you are using **scikit-survival**.
+Please cite the following paper if you are using **scikit-survival**.
 
-1. Pölsterl, S., Navab, N., and Katouzian, A.,
-`Fast Training of Support Vector Machines for Survival Analysis <http://link.springer.com/chapter/10.1007/978-3-319-23525-7_15>`_.
-Machine Learning and Knowledge Discovery in Databases: European Conference,
-ECML PKDD 2015, Porto, Portugal,
-Lecture Notes in Computer Science, vol. 9285, pp. 243-259 (2015)
+  S. Pölsterl, "scikit-survival: A Library for Time-to-Event Analysis Built on Top of scikit-learn,"
+  Journal of Machine Learning Research, vol. 21, no. 212, pp. 1–6, 2020.
 
-2. Pölsterl, S., Navab, N., and Katouzian, A.,
-`An Efficient Training Algorithm for Kernel Survival Support Vector Machines <https://arxiv.org/abs/1611.07054>`_.
-4th Workshop on Machine Learning in Life Sciences,
-23 September 2016, Riva del Garda, Italy
+.. code::
 
-3. Pölsterl, S., Gupta, P., Wang, L., Conjeti, S., Katouzian, A., and Navab, N.,
-`Heterogeneous ensembles for predicting survival of metastatic, castrate-resistant prostate cancer patients <http://doi.org/10.12688/f1000research.8231.1>`_.
-F1000Research, vol. 5, no. 2676 (2016).
+  @article{sksurv,
+    author  = {Sebastian P{\"o}lsterl},
+    title   = {scikit-survival: A Library for Time-to-Event Analysis Built on Top of scikit-learn},
+    journal = {Journal of Machine Learning Research},
+    year    = {2020},
+    volume  = {21},
+    number  = {212},
+    pages   = {1-6},
+    url     = {http://jmlr.org/papers/v21/20-729.html}
+  }
+
+.. |License| image:: https://img.shields.io/badge/license-GPLv3-blue.svg
+  :target: COPYING
+  :alt: License
+
+.. |Codecov| image:: https://codecov.io/gh/sebp/scikit-survival/branch/master/graph/badge.svg
+  :target: https://codecov.io/gh/sebp/scikit-survival
+  :alt: codecov
+
+.. |Codacy| image:: https://api.codacy.com/project/badge/Grade/17242004cdf6422c9a1052bf1ec63104
+   :target: https://www.codacy.com/gh/sebp/scikit-survival/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=sebp/scikit-survival&amp;utm_campaign=Badge_Grade
+   :alt: Codacy Badge
+
+.. |Docs| image:: https://readthedocs.org/projects/scikit-survival/badge/?version=latest
+  :target: https://scikit-survival.readthedocs.io/en/latest/
+  :alt: readthedocs.org
+
+.. |DOI| image:: https://zenodo.org/badge/77409504.svg
+   :target: https://zenodo.org/badge/latestdoi/77409504
+   :alt: Digital Object Identifier (DOI)
+
+.. |build-linux| image:: https://github.com/sebp/scikit-survival/workflows/Linux/badge.svg?branch=master
+  :target: https://github.com/sebp/scikit-survival/actions?query=workflow%3ALinux+branch%3Amaster+
+  :alt: Linux Build Status
+
+.. |build-macos| image:: https://github.com/sebp/scikit-survival/workflows/macOS/badge.svg?branch=master
+  :target: https://github.com/sebp/scikit-survival/actions?query=workflow%3AmacOS+branch%3Amaster+
+  :alt: macOS Build Status
+
+.. |build-windows| image:: https://ci.appveyor.com/api/projects/status/github/sebp/scikit-survival?branch=master&svg=true
+   :target: https://ci.appveyor.com/project/sebp/scikit-survival
+   :alt: Windows Build Status on AppVeyor
 
 .. _survival analysis: https://en.wikipedia.org/wiki/Survival_analysis
