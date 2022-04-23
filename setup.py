@@ -91,7 +91,7 @@ EXTENSIONS = {
                 "language": "c++",
                 "include_dirs": ["sksurv/linear_model/src",
                                  "sksurv/linear_model/src/eigen"],
-                "extra_compile_args": ["-std=c++11"]},
+                "extra_compile_args": ["-std=c++14"]},
 }
 
 
@@ -212,7 +212,7 @@ def setup_package():
                      'Topic :: Scientific/Engineering',
                      ],
         zip_safe=False,
-        include_package_data=True,
+        package_data={"sksurv.datasets": ["data/*.arff"]},
         python_requires='>=3.7',
         install_requires=parse_requirements('requirements/prod.txt'),
         cmdclass={"clean": clean},
