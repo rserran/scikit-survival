@@ -197,8 +197,7 @@ class TestClinicalKernel:
 Feature names unseen at fit time:
 - XYZ
 """
-        warn_msg = r"The feature names should match those that were passed during fit\."
-        with pytest.raises(ValueError, match=error_msg), pytest.warns(FutureWarning, match=warn_msg):
+        with pytest.raises(ValueError, match=error_msg):
             t.transform(df_test)
 
     @staticmethod
@@ -280,8 +279,7 @@ Feature names unseen at fit time:
         t = ClinicalKernelTransform(fit_once=True)
         t.prepare(data)
 
-        copy = clone(t).fit(t.X_fit_)
-        mat = copy.transform(t.X_fit_[:4, :])
+        mat = clone(t).fit(t.X_fit_).transform(t.X_fit_[:4, :])
 
         assert_array_almost_equal(expected[:4, :], mat, 4)
 
