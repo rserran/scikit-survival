@@ -10,7 +10,8 @@ requires = [
 
     # scikit-learn requirements
     "scikit-learn~=1.4.0; python_version<='3.12'",
-    "scikit-learn; python_version>'3.12'",
+    "scikit-learn~=1.5.0; python_version=='3.13'",
+    "scikit-learn; python_version>'3.13'",
 ]
 build-backend = "setuptools.build_meta"
 
@@ -22,7 +23,7 @@ authors = [
     {name = "Sebastian Pölsterl", email = "sebp@k-d-w.org"}
 ]
 license = {file = "COPYING"}
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
@@ -35,10 +36,10 @@ classifiers = [
     "Programming Language :: Cython",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development",
     "Topic :: Scientific/Engineering"
 ]
@@ -93,10 +94,10 @@ docs = [
 nbval = [
     "ipykernel",
     "ipython!=8.7.0",
-    "matplotlib~=3.8.0",
+    "matplotlib~=3.9.0",
     "nbformat",
     "nbval>=0.10.0",
-    "seaborn~=0.11.2",
+    "seaborn~=0.13.2",
 ]
 
 [tool.setuptools]
@@ -112,7 +113,7 @@ namespaces = false
 [tool.black]
 line-length = 120
 extend-exclude = "sksurv/linear_model/src/eigen"
-target-version = ["py39"]
+target-version = ["py310"]
 
 [tool.pytest.ini_options]
 minversion = "6.0"
@@ -181,7 +182,7 @@ extend-exclude = [
 # Group violations by containing file.
 output-format = "grouped"
 line-length = 120
-target-version = "py39"
+target-version = "py310"
 
 [tool.ruff.lint]
 ignore = ["C408"]

@@ -12,10 +12,10 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - py39
           - py310
           - py311
           - py312
+          - py313
         runner:
           - ubuntu-latest
           - macos-14
@@ -72,11 +72,11 @@ jobs:
             echo "do=false" >> $GITHUB_OUTPUT
           fi
       - name: Submit Coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
-          file: coverage.xml
+          files: coverage.xml
           fail_ci_if_error: true
           disable_file_fixes: true
         if: steps.coverage.outputs.do == 'true'
@@ -100,7 +100,7 @@ jobs:
       - name: Set dependencies
         id: dependencies
         env:
-          DEPS_CONFIG: py311
+          DEPS_CONFIG: py312
         run: |
           source ci/deps/${DEPS_CONFIG}.sh
           echo "CI_PYTHON_VERSION=${CI_PYTHON_VERSION}" >> $GITHUB_ENV
@@ -109,12 +109,13 @@ jobs:
           echo "CI_SKLEARN_VERSION=${CI_SKLEARN_VERSION}" >> $GITHUB_ENV
           echo "CI_NO_SLOW=${CI_NO_SLOW}" >> $GITHUB_ENV
           echo "CONDA_PKGS_DIRS=${{ runner.temp }}/conda_pkgs_dir" >> $GITHUB_ENV
+          echo "py_version=$(cut -d'.' -f 1-2 <<< ${CI_PYTHON_VERSION})" >> $GITHUB_OUTPUT
           echo "requirements=ci/deps/${DEPS_CONFIG}.sh" >> $GITHUB_OUTPUT
       - name: Cache downloaded packages
         uses: actions/cache@v4
         with:
           path: ${{ env.CONDA_PKGS_DIRS }}
-          key: ${{ runner.os }}-${{ runner.arch }}-conda-3.11-${{ hashFiles(steps.dependencies.outputs.requirements, 'pyproject.toml', 'ci/deps/requirements.yaml.tmpl') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-conda-${{ steps.dependencies.outputs.py_version }}-${{ hashFiles(steps.dependencies.outputs.requirements, 'pyproject.toml', 'ci/deps/requirements.yaml.tmpl') }}
       - name: Create Conda Environment
         run: |
           source ci/setup_conda.sh "${{ runner.os }}" "${{ runner.arch }}" "${{ env.CONDA_PKGS_DIRS }}"
