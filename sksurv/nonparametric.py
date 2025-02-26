@@ -188,7 +188,7 @@ def _compute_counts_truncated(event, time_enter, time_exit):
     return uniq_times, event_counts, total_counts
 
 
-def _ci_logmlog(s, sigma_t, z):
+def _ci_logmlog(s, sigma_t, conf_level):
     r"""Compute the pointwise log-minus-log transformed confidence intervals.
     s refers to the prob_survival or the cum_inc (for the competing risks case).
     sigma_t is the square root of the variance of the log of the estimator of s.
@@ -203,6 +203,8 @@ def _ci_logmlog(s, sigma_t, z):
     np.log(s, where=mask, out=log_p)
     theta = np.zeros_like(s)
     np.true_divide(sigma_t, log_p, where=log_p < -eps, out=theta)
+
+    z = stats.norm.isf((1.0 - conf_level) / 2.0)
     theta = z * np.multiply.outer([-1, 1], theta)
     ci = np.exp(np.exp(theta) * log_p)
     ci[:, ~mask] = 0.0
@@ -216,9 +218,8 @@ def _km_ci_estimator(prob_survival, ratio_var, conf_level, conf_type):
     if not isinstance(conf_level, numbers.Real) or not np.isfinite(conf_level) or conf_level <= 0 or conf_level >= 1.0:
         raise ValueError(f"conf_level must be a float in the range (0.0, 1.0), but was {conf_level!r}")
 
-    z = stats.norm.isf((1.0 - conf_level) / 2.0)
     sigma = np.sqrt(np.cumsum(ratio_var))
-    ci = _ci_logmlog(prob_survival, sigma, z)
+    ci = _ci_logmlog(prob_survival, sigma, conf_level)
     return ci
 
 
@@ -615,10 +616,11 @@ def _cum_inc_cr_ci_estimator(cum_inc, var, conf_level, conf_type):
     if not isinstance(conf_level, numbers.Real) or not np.isfinite(conf_level) or conf_level <= 0 or conf_level >= 1.0:
         raise ValueError(f"conf_level must be a float in the range (0.0, 1.0), but was {conf_level!r}")
     eps = np.finfo(var.dtype).eps
-    z = stats.norm.isf((1.0 - conf_level) / 2.0)
     sigma = np.zeros_like(var)
-    np.divide(np.sqrt(var), cum_inc[1:], where=var > eps, out=sigma)
-    ci = _ci_logmlog(cum_inc[1:], sigma, z)
+    np.divide(np.sqrt(var), cum_inc, where=var > eps, out=sigma)
+    ci = _ci_logmlog(cum_inc, sigma, conf_level)
+    # make first axis the competing risks, the second axis the lower and upper confidence interval
+    ci = np.swapaxes(ci, 0, 1)
     return ci
 
 
@@ -628,11 +630,11 @@ def cumulative_incidence_competing_risks(
     time_min=None,
     conf_level=0.95,
     conf_type=None,
-    var_type="Dinse",
+    var_type="Aalen",
 ):
     """Non-parametric estimator of Cumulative Incidence function in the case of competing risks.
 
-    See [1]_ for further description.
+    See the :ref:`User Guide </user_guide/competing-risks.ipynb>` and [1]_ for further details.
 
     Parameters
     ----------
@@ -658,10 +660,10 @@ def cumulative_incidence_competing_risks(
         If "log-log", estimate confidence intervals using
         the log hazard or :math:`log(-log(S(t)))`.
 
-    var_type : None or one of {'Dinse', 'Dinse_Approx', 'Aalen'}, optional, default: 'Dinse'
+    var_type : None or one of {'Aalen', 'Dinse', 'Dinse_Approx'}, optional, default: 'Aalen'
         The method for estimating the variance of the estimator.
         See [2]_, [3]_ and [4]_ for each of the methods.
-        Only valid if conf_type is valid.
+        Only used if `conf_type` is not None.
 
     Returns
     -------
@@ -671,12 +673,12 @@ def cumulative_incidence_competing_risks(
     cum_incidence : array, shape = (n_risks + 1, n_times)
         Cumulative incidence at each unique time point.
         The first dimension indicates total risk (``cum_incidence[0]``),
-        the dimension `i=1,..,n_risks` the incidence for each competing risk.
+        the dimension `i=1,...,n_risks` the incidence for each competing risk.
 
-    conf_int : array, shape = (2, n_risks + 1, n_times)
-        Pointwise confidence interval of the Kaplan-Meier estimator
-        at each unique time point (last index)
-        for all possible risks (second index) including overall risk (i=0).
+    conf_int : array, shape = (n_risks + 1, 2, n_times)
+        Pointwise confidence interval (second axis) of the Kaplan-Meier estimator
+        at each unique time point (last axis)
+        for all possible risks (first axis), including overall risk (``conf_int[0]``).
         Only provided if `conf_type` is not None.
 
     Examples
@@ -688,12 +690,12 @@ def cumulative_incidence_competing_risks(
     >>> event = bmt_df["status"]
     >>> time = bmt_df["ftime"]
     >>> n_risks = event.max()
-    >>> x, y, conf_int = cumulative_incidence_competing_risks(event, time, conf_type="log-log", var_type="Aalen")
+    >>> x, y, conf_int = cumulative_incidence_competing_risks(event, time, conf_type="log-log")
     >>> plt.step(x, y[0], where="post", label="Total risk")
-    >>> plt.fill_between(x, conf_int[0,0], conf_int[1,0], alpha=0.25, step="post")
+    >>> plt.fill_between(x, conf_int[0, 0], conf_int[0, 1], alpha=0.25, step="post")
     >>> for i in range(1, n_risks + 1):
     >>>    plt.step(x, y[i], where="post", label=f"{i}-risk")
-    >>>    plt.fill_between(x, conf_int[0,i], conf_int[1,i], alpha=0.25, step="post")
+    >>>    plt.fill_between(x, conf_int[i, 0], conf_int[i, 1], alpha=0.25, step="post")
     >>> plt.ylim(0, 1)
     >>> plt.legend()
     >>> plt.show()
@@ -702,11 +704,11 @@ def cumulative_incidence_competing_risks(
     ----------
     .. [1] Kalbfleisch, J.D. and Prentice, R.L. (2002)
            The Statistical Analysis of Failure Time Data. 2nd Edition, John Wiley and Sons, New York.
-    .. [2] Dinse and Larson, Biometrika (1986), 379. Sect. 4, Eqs. 4 and 5.
-    .. [3] Dinse and Larson, Biometrika (1986), 379. Sect. 4, Eq. 6.
-    .. [4] Aalen, O. (1978a). Annals of Statistics, 6, 534–545.
+    .. [2] Aalen, O. (1978a). Annals of Statistics, 6, 534–545.
            We implement the formula in M. Pintilie: "Competing Risks: A Practical Perspective".
            John Wiley & Sons, 2006, Eq. 4.5
+    .. [3] Dinse and Larson, Biometrika (1986), 379. Sect. 4, Eqs. 4 and 5.
+    .. [4] Dinse and Larson, Biometrika (1986), 379. Sect. 4, Eq. 6.
     """
     event, time_exit = check_y_survival(event, time_exit, allow_all_censored=True, competing_risks=True)
     check_consistent_length(event, time_exit)
@@ -729,28 +731,27 @@ def cumulative_incidence_competing_risks(
         ratio = np.compress(mask, ratio, axis=0)
 
     kpe = np.cumprod(1.0 - ratio[:, 0])
-    kpe_prime = np.ones_like(kpe)
-    kpe_prime[1:] = kpe[:-1]
+    kpe_prime = np.r_[1.0, kpe[:-1]]
     cum_inc = np.empty((n_risks + 1, n_t), dtype=float)
-    cum_inc[1 : n_risks + 1] = np.cumsum((ratio[:, 1 : n_risks + 1].T * kpe_prime), axis=1)
     cum_inc[0] = 1.0 - kpe
+    cum_inc[1:] = np.cumsum((ratio[:, 1:].T * kpe_prime), axis=1)
 
     if conf_type is None:
         return uniq_times, cum_inc
 
-    if var_type == "Dinse":
-        var = _var_dinse(n_events_cr, kpe_prime, n_at_risk)
+    if var_type == "Aalen":
+        var = _var_aalen(n_events_cr, kpe_prime, n_at_risk, cum_inc)
     elif var_type == "Dinse_Approx":
         var = _var_dinse_approx(n_events_cr, kpe_prime, n_at_risk, cum_inc)
-    elif var_type == "Aalen":
-        var = _var_aalen(n_events_cr, kpe_prime, n_at_risk, cum_inc)
+    elif var_type == "Dinse":
+        var = _var_dinse(n_events_cr, kpe_prime, n_at_risk)
     else:
-        raise ValueError(f"{var_type=} must be one of 'Dinse', 'Dinse_Approx' or 'Aalen'.")
+        raise ValueError(f"{var_type=} must be one of 'Aalen', 'Dinse', or 'Dinse_Approx'.")
 
     _x, _y, conf_int_km = kaplan_meier_estimator(event > 0, time_exit, conf_type="log-log")
-    ci = np.empty(shape=(2, n_risks + 1, n_t), dtype=conf_int_km.dtype)
-    ci[:, 0, :] = 1 - conf_int_km
-    ci[:, 1:, :] = _cum_inc_cr_ci_estimator(cum_inc, var, conf_level, conf_type)
+    ci = np.empty(shape=(n_risks + 1, 2, n_t), dtype=conf_int_km.dtype)
+    ci[0, :, :] = 1 - conf_int_km
+    ci[1:, :, :] = _cum_inc_cr_ci_estimator(cum_inc[1:], var, conf_level, conf_type)
 
     return uniq_times, cum_inc, ci
 
