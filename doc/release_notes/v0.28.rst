@@ -1,0 +1,41 @@
+.. _release_notes_0_28:
+
+What's new in 0.28
+==================
+
+scikit-survival 0.28.0 (2026-07-XX)
+-----------------------------------
+
+This release adds support for polars DataFrames and scikit-learn 1.9.
+The updated minimum supported version of dependencies are:
+
+   +--------------+-----------------+
+   | Package      | Minimum Version |
+   +==============+=================+
+   | narwhals     | 2.0.1           |
+   +--------------+-----------------+
+   | scikit-learn | 1.9.0           |
+   +--------------+-----------------+
+
+Enhancements
+^^^^^^^^^^^^
+
+- Add support for :external+polars:ref:`polars DataFrame <dataframe>` via narwhals to all estimators (:issue:`592`).
+- Add support for :external+sklearn:ref:`scikit-learn 1.9 <release_notes_1_9>` (:issue:`593`).
+- Upgrade to Sphinx 8.2, pydata-sphinx-theme 0.18, and sphinx-design 0.7 (:issue:`595`).
+- Add ``output_type`` to :func:`sksurv.io.loadarff` to return :class:`pandas.DataFrame` (default) or :class:`polars.DataFrame` (:issue:`592`).
+- Add support to write :class:`polars.DataFrame` with :func:`sksurv.io.writearff` (:issue:`592`).
+- Add support for :class:`polars.DataFrame` to :func:`sksurv.kernels.clinical_kernel`, :class:`sksurv.kernels.ClinicalKernelTransform`,
+  and :class:`sksurv.preprocessing.OneHotEncoder` (:issue:`592`).
+
+Bug Fixes
+^^^^^^^^^
+
+- Fix handling of pandas Boolean dtype in :class:`sksurv.kernels.ClinicalKernelTransform` (:issue:`590`).
+
+Backwards incompatible changes
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- Require at least narwhals 2.0.1.
+- Require at least scikit-learn 1.9.0.
+- Removed ``criterion`` from :class:`sksurv.ensemble.GradientBoostingSurvivalAnalysis` (:issue:`593`).
