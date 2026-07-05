@@ -3,7 +3,7 @@
 What's new in 0.28
 ==================
 
-scikit-survival 0.28.0 (2026-07-XX)
+scikit-survival 0.28.0 (2026-07-05)
 -----------------------------------
 
 This release adds support for polars DataFrames and scikit-learn 1.9.
