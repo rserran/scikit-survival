@@ -127,7 +127,7 @@ jobs:
           ci\setup_conda.ps1 -DepsVersion "${{ matrix.config }}" -InstallationDirectory "${env:CONDA_INSTALL_LOCN}" -CondaPkgsDir "${env:CONDA_PKGS_DIRS}"
       - name: Build package
         run: |
-          mamba run -n sksurv-test python -m build .
+          mamba run -n sksurv-test python -m build --installer=uv .
           mamba run -n sksurv-test pip install --exists-action=w --pre --no-index --find-links dist/ scikit-survival
           Remove-Item -Path dist, sksurv -Recurse -Force
       - name: Run Tests
