@@ -10,6 +10,10 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""
+Utitlity functions.
+"""
+
 import narwhals.stable.v2 as nw
 import numpy as np
 from sklearn.utils.validation import check_array, check_consistent_length
@@ -295,7 +299,7 @@ def check_array_survival(X, y, **kwargs):
         as first field, and time of event or time of censoring as
         second field.
 
-    kwargs : dict
+    **kwargs : dict
         Additional arguments passed to :func:`check_y_survival`.
 
     Returns

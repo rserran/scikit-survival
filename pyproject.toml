@@ -257,12 +257,6 @@ env_list = [
     "docs",
 ]
 
-[tool.tox.env_run_base]
-deps = [
-    "cython",
-    "numpy",
-]
-
 [tool.tox.env.lint]
 description = "Run linters"
 skip_install = true
@@ -272,7 +266,7 @@ deps = [
 ]
 commands = [
     ["sphinx-lint", "doc", "-i", "doc{/}api{/}generated"],
-    ["numpydoc", "lint", { replace = "glob", pattern = "sksurv/*/**.py", extend = true }],
+    ["numpydoc", "lint", { replace = "glob", pattern = "sksurv/**/*.py", extend = true }],
 ]
 
 [tool.tox.env.docs]

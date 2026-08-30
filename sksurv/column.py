@@ -10,6 +10,9 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""
+Column-wise transformations.
+"""
 
 import numpy as np
 
@@ -26,7 +29,7 @@ from ._dataframe._column_impl import (
 __all__ = ["categorical_to_numeric", "encode_categorical", "standardize"]
 
 
-def standardize_column(array, with_std=True):
+def _standardize_column(array, with_std=True):
     d = array.dtype
     if issubclass(d.type, np.number):
         output = array.astype(float)
@@ -70,10 +73,10 @@ def standardize(table, with_std=True):
     table = ensure_eager_dataframe(table)
     if is_supported_dataframe(table):
         return standardize_narwhals_dataframe(table, with_std=with_std)
-    return np.apply_along_axis(standardize_column, 0, table, with_std=with_std)
+    return np.apply_along_axis(_standardize_column, 0, table, with_std=with_std)
 
 
-def encode_categorical(table, columns=None, **kwargs):
+def encode_categorical(table, columns=None, *, allow_drop=True):
     """
     One-hot encode categorical features.
 
@@ -103,7 +106,7 @@ def encode_categorical(table, columns=None, **kwargs):
         dataframe library matches the input.
     """
     table = ensure_eager_dataframe(table)
-    return encode_categorical_narwhals(table, columns=columns, **kwargs)
+    return encode_categorical_narwhals(table, columns=columns, allow_drop=allow_drop)
 
 
 def categorical_to_numeric(table):

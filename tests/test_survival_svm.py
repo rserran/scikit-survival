@@ -9,6 +9,7 @@ from sklearn.decomposition import KernelPCA
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import MinMaxScaler, normalize
+from sklearn.utils import check_random_state
 
 from sksurv.bintrees import AVLTree, RBTree
 from sksurv.column import encode_categorical
@@ -866,13 +867,14 @@ class TestNaiveSurvivalSVM:
     def test_survival_squared_hinge_loss(whas500_without_ties):
         x, y = whas500_without_ties
 
-        nrsvm = NaiveSurvivalSVM(
-            loss="squared_hinge",
-            dual=False,
-            tol=8e-7,
-            max_iter=1000,
-            random_state=0,
-        )
+        with pytest.warns(DeprecationWarning, match="NaiveSurvivalSVM is deprecated"):
+            nrsvm = NaiveSurvivalSVM(
+                loss="squared_hinge",
+                dual=False,
+                tol=8e-7,
+                max_iter=1000,
+                random_state=0,
+            )
         nrsvm.fit(x, y)
 
         assert nrsvm.n_iter_ > 10
@@ -894,13 +896,14 @@ class TestNaiveSurvivalSVM:
     def test_fit_with_ties(whas500_with_ties):
         x, y = whas500_with_ties
 
-        nrsvm = NaiveSurvivalSVM(
-            loss="squared_hinge",
-            dual=False,
-            tol=1e-8,
-            max_iter=1000,
-            random_state=0,
-        )
+        with pytest.warns(DeprecationWarning, match="NaiveSurvivalSVM is deprecated"):
+            nrsvm = NaiveSurvivalSVM(
+                loss="squared_hinge",
+                dual=False,
+                tol=1e-8,
+                max_iter=1000,
+                random_state=0,
+            )
         nrsvm.fit(x, y)
 
         assert nrsvm.coef_.shape == (1, 14)
@@ -910,12 +913,30 @@ class TestNaiveSurvivalSVM:
 
     @staticmethod
     def test_fit_uncomparable(whas500_uncomparable):
-        ssvm = NaiveSurvivalSVM(
-            loss="squared_hinge",
-            dual=False,
-            tol=1e-8,
-            max_iter=1000,
-            random_state=0,
-        )
+        with pytest.warns(DeprecationWarning, match="NaiveSurvivalSVM is deprecated"):
+            ssvm = NaiveSurvivalSVM(
+                loss="squared_hinge",
+                dual=False,
+                tol=1e-8,
+                max_iter=1000,
+                random_state=0,
+            )
         with pytest.raises(NoComparablePairException):
             ssvm.fit(whas500_uncomparable.x, whas500_uncomparable.y)
+
+    @staticmethod
+    def test_dataframe_container_preserved(dataframe_backend):
+        rng = np.random.default_rng(0)
+        n_samples = 30
+        data = {f"f{i}": rng.standard_normal(n_samples) for i in range(5)}
+        y = Surv.from_arrays(rng.binomial(1, 0.5, n_samples).astype(bool), rng.exponential(10, n_samples))
+        x = dataframe_backend.make_frame(data)
+
+        with pytest.warns(DeprecationWarning, match="NaiveSurvivalSVM is deprecated"):
+            est = NaiveSurvivalSVM(random_state=0)
+        rs = check_random_state(0)
+        x_pairs, _ = est._get_survival_pairs(x, y, rs)
+
+        assert isinstance(
+            x_pairs, dataframe_backend.dataframe_type
+        ), f"the input container must be preserved internally, got {type(x_pairs)!r}"

@@ -357,6 +357,9 @@ class MinlipSurvivalAnalysis(BaseEstimator, SurvivalAnalysisMixin):
     solver : {'ecos', 'clarabel', 'osqp'}, optional, default: 'ecos'
         Which quadratic program solver to use.
 
+        .. deprecated:: 0.29.0
+            The solver `ecos` will be removed in a future release, use `clarabel` instead.
+
     kernel : str or callable, optional, default: 'linear'
         Kernel mapping used internally. This parameter is directly passed to
         :func:`sklearn.metrics.pairwise.pairwise_kernels`.
@@ -635,8 +638,11 @@ class HingeLossSurvivalSVM(MinlipSurvivalAnalysis):
     alpha : float, optional, default: 1
         Weight of penalizing the hinge loss in the objective function. Must be greater than 0.
 
-    solver : {'ecos', 'osqp'}, optional, default: 'ecos'
+    solver : {'ecos', 'clarabel', 'osqp'}, optional, default: 'ecos'
         Which quadratic program solver to use.
+
+        .. deprecated:: 0.29.0
+            The solver `ecos` will be removed in a future release, use `clarabel` instead.
 
     kernel : str or callable, optional, default: 'linear'
         Kernel mapping used internally. This parameter is directly passed to

@@ -10,10 +10,24 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""
+Mixins for survival analysis estimators.
+"""
+
 import numpy as np
 
 
 class SurvivalAnalysisMixin:
+    """
+    Mixins for all survival analysis estimators.
+
+    This mixin defines:
+
+    - `_predict_cumulative_hazard_function` and `_predict_cumulative_hazard_function`
+       to create array of :class:`sksurv.functions.StepFunction`.
+    - `score` method that defaults to :func:`sksurv.metrics import concordance_index_censored`.
+    """
+
     def _predict_function(self, func_name, baseline_model, prediction, return_array):
         fns = getattr(baseline_model, func_name)(prediction)
 
