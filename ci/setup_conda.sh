@@ -12,17 +12,17 @@ run_check_sha() {
 
 if [[ -z "${MINIFORGE:-}" ]]; then
     # download and install conda
-    MINIFORGE_VERSION="25.3.1-0"
+    MINIFORGE_VERSION="26.9.4-0"
 
     if [[ "${RUNNER_OS}" = "macOS" ]] && [[ "${RUNNER_ARCH}" = "ARM64" ]]; then
         MINIFORGE_FILENAME="${MINIFORGE_VERSION}-MacOSX-arm64"
-        MINIFORGE_HASH="d9eabd1868030589a1d74017b8723b01cf81b5fec1b9da8021b6fa44be7bbeae"
+        MINIFORGE_HASH="85512f5495465644e09655d84bc1df79d978353abd9ef0d0a8f3df75da44c760"
     elif [[ "${RUNNER_OS}" = "macOS" ]] && [[ "${RUNNER_ARCH}" = "X64" ]]; then
         MINIFORGE_FILENAME="${MINIFORGE_VERSION}-MacOSX-x86_64"
-        MINIFORGE_HASH="6c09a3550bb65bdb6d3db6f6c2b890b987b57189f3b71c67a5af49943d2522e8"
+        MINIFORGE_HASH="4bf8d162f90a9ae79fbe1c3b152a9957b6cf4e7385758fa21e0340229d444df1"
     elif [[ "${RUNNER_OS}" = "Linux" ]] && [[ "${RUNNER_ARCH}" = "X64" ]]; then
         MINIFORGE_FILENAME="${MINIFORGE_VERSION}-Linux-x86_64"
-        MINIFORGE_HASH="376b160ed8130820db0ab0f3826ac1fc85923647f75c1b8231166e3d559ab768"
+        MINIFORGE_HASH="621428f40496a90702753b09237794518a081d9979d9f845a525de761b6056f7"
     else
         echo "Unsupported OS or ARCH: ${RUNNER_OS} ${RUNNER_ARCH}"
         exit 1
@@ -77,14 +77,11 @@ echo "::group::🎉 Conda installation and configuration complete."
 echo "::endgroup::"
 
 echo "::group::✨ Create conda environment..."
-source "ci/deps/${DEPS_VERSION:?}.sh"
-python ci/render-requirements.py ci/deps/requirements.yaml.tmpl > environment.yaml
+pipx run ci/render-requirements.py -m yaml "${DEPS_VERSION:?}" > environment.yaml
 
 mamba env create -n sksurv-test --file environment.yaml
 
-echo "numpy ${CI_NUMPY_VERSION:?}" > "${MINIFORGE:?}/envs/sksurv-test/conda-meta/pinned"
-echo "pandas ${CI_PANDAS_VERSION:?}" >> "${MINIFORGE:?}/envs/sksurv-test/conda-meta/pinned"
-echo "scikit-learn ${CI_SKLEARN_VERSION:?}" >> "${MINIFORGE:?}/envs/sksurv-test/conda-meta/pinned"
+pipx run ci/render-requirements.py -m pinned "${DEPS_VERSION:?}" > "${MINIFORGE:?}/envs/sksurv-test/conda-meta/pinned"
 
 # delete any version that is already installed.
 # use '|| true' to ensure script continues even if package is not found.

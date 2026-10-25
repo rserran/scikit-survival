@@ -30,9 +30,9 @@ function Test-ExitCode {
     }
 }
 
-$installerUrl = "https://github.com/conda-forge/miniforge/releases/download/25.3.1-0/Miniforge3-25.3.1-0-Windows-x86_64.exe"
+$installerUrl = "https://github.com/conda-forge/miniforge/releases/download/26.9.4-0/Miniforge3-26.9.4-0-Windows-x86_64.exe"
 $installerPath = "Miniforge.exe"
-$expectedHash = "b7706a307b005fc397b70a244de19129100906928abccd5592580eb8296fb240"
+$expectedHash = "43638698f5ee811debae27b0dc3ab5c0300129bd400a847376c4bd2f6be15ceb"
 
 Write-Output "🔽 Downloading Miniforge installer..."
 Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
@@ -82,15 +82,11 @@ Test-ExitCode
 Write-Output "::endgroup::"
 
 Write-Output "::group::✨ Create conda environment..."
-$envScript=".\ci\deps\windows\$DepsVersion.ps1"
-& $envScript
-python "ci\render-requirements.py" "ci\deps\requirements.yaml.tmpl" > environment.yaml
+pipx run "ci\render-requirements.py" -m "yaml" "$DepsVersion" > environment.yaml
 
 mamba env create -n sksurv-test --file environment.yaml
 
-Add-Content -Path "$InstallationDirectory/envs/sksurv-test/conda-meta/pinned" -Value "numpy $env:CI_NUMPY_VERSION"
-Add-Content -Path "$InstallationDirectory/envs/sksurv-test/conda-meta/pinned" -Value "pandas $env:CI_PANDAS_VERSION"
-Add-Content -Path "$InstallationDirectory/envs/sksurv-test/conda-meta/pinned" -Value "scikit-learn $env:CI_SKLEARN_VERSION"
+pipx run "ci\render-requirements.py" -m "pinned" "$DepsVersion" > "$InstallationDirectory/envs/sksurv-test/conda-meta/pinned"
 
 mamba list -n sksurv-test
 Write-Output "::endgroup::"
