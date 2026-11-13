@@ -321,11 +321,12 @@ def kaplan_meier_estimator(
 
     References
     ----------
-    .. [1] Kaplan, E. L. and Meier, P., "Nonparametric estimation from incomplete observations",
-           Journal of The American Statistical Association, vol. 53, pp. 457-481, 1958.
-    .. [2] Borgan Ø. and Liestøl K., "A Note on Confidence Intervals and Bands for the
-           Survival Function Based on Transformations", Scandinavian Journal of
-           Statistics. 1990;17(1):35–41.
+    .. [1] Kaplan, E. L., & Meier, P. (1958). "Nonparametric estimation from incomplete observations".
+           Journal of The American Statistical Association, 53, 457–481.
+
+    .. [2] Borgan, Ø., & Liestøl, K. (1990).
+           "A Note on Confidence Intervals and Bands for the Survival Function Based on Transformations".
+           Scandinavian Journal of Statistics, 17(1), 35–41.
 
     Examples
     --------
@@ -427,11 +428,11 @@ def nelson_aalen_estimator(event, time):
 
     References
     ----------
-    .. [1] Nelson, W., "Theory and applications of hazard plotting for censored failure data",
-           Technometrics, vol. 14, pp. 945-965, 1972.
+    .. [1] Nelson, W. (1972). "Theory and applications of hazard plotting for censored failure data".
+           Technometrics, 14, 945–965.
 
-    .. [2] Aalen, O. O., "Nonparametric inference for a family of counting processes",
-           Annals of Statistics, vol. 6, pp. 701–726, 1978.
+    .. [2] Aalen, O. O. (1978). "Nonparametric inference for a family of counting processes".
+           Annals of Statistics, 6, 701–726.
 
     Examples
     --------
@@ -706,7 +707,6 @@ def _cum_inc_cr_ci_estimator(cum_inc, var, conf_level, conf_type):
 def cumulative_incidence_competing_risks(
     event,
     time_exit,
-    time_min=None,
     conf_level=0.95,
     conf_type=None,
     var_type="Aalen",
@@ -726,10 +726,6 @@ def cumulative_incidence_competing_risks(
 
     time_exit : array-like, shape = (n_samples,)
         Contains event or censoring times.
-
-    time_min : float, optional, default: None
-        Compute estimator conditional on survival at least up to
-        the specified time.
 
     conf_level : float, optional, default: 0.95
         The level for a two-sided confidence interval on the cumulative incidence curves.
@@ -764,13 +760,17 @@ def cumulative_incidence_competing_risks(
 
     References
     ----------
-    .. [1] Kalbfleisch, J.D. and Prentice, R.L. (2002)
-           The Statistical Analysis of Failure Time Data. 2nd Edition, John Wiley and Sons, New York.
-    .. [2] Aalen, O. (1978a). Annals of Statistics, 6, 534–545.
-           We implement the formula in M. Pintilie: "Competing Risks: A Practical Perspective".
-           John Wiley & Sons, 2006, Eq. 4.5
-    .. [3] Dinse and Larson, Biometrika (1986), 379. Sect. 4, Eqs. 4 and 5.
-    .. [4] Dinse and Larson, Biometrika (1986), 379. Sect. 4, Eq. 6.
+    .. [1] Kalbfleisch, J. D., & Prentice, R. L. (2002). "The Statistical Analysis of Failure Time Data", 2nd Edition.
+           John Wiley & Sons, New York.
+
+    .. [2] Aalen, O. (1978).
+           "Nonparametric Estimation of Partial Transition Probabilities in Multiple Decrement Models".
+           Annals of Statistics, 6(3), 534–545.
+
+    .. [3] Pintilie, M. (2006). "Competing Risks: A Practical Perspective". John Wiley & Sons. Eq. 4.5.
+
+    .. [4] Dinse, G. E., & Larson, M. G. (1986). "A note on semi-Markov models for partially censored data".
+           Biometrika, 73(2), 379–386. Sect. 4, Eqs. 4, 5 and 6.
 
     Examples
     --------
@@ -820,11 +820,6 @@ def cumulative_incidence_competing_risks(
         out=np.zeros((n_t, n_risks + 1), dtype=float),
         where=n_events_cr != 0,
     )
-
-    if time_min is not None:
-        mask = uniq_times >= time_min
-        uniq_times = np.compress(mask, uniq_times)
-        ratio = np.compress(mask, ratio, axis=0)
 
     kpe = np.cumprod(1.0 - ratio[:, 0])
     kpe_prime = np.r_[1.0, kpe[:-1]]
